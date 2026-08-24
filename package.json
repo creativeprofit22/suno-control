@@ -1,0 +1,32 @@
+{
+  "name": "suno-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/src/cli.js",
+    "test": "npm run build --silent && node --test dist/test/cli.test.js dist/test/job.test.js dist/test/runtime-paths.test.js",
+    "install-browser": "playwright install chromium",
+    "test:phase-command": "node --test --test-name-pattern=\"documented command starts\" test/phase-completion.test.mjs",
+    "test:phase-profile": "node --test --test-name-pattern=\"visible persistent Chromium\" test/phase-completion.test.mjs",
+    "test:phase-ignores": "node --test --test-name-pattern=\"runtime profile downloads\" test/phase-completion.test.mjs",
+    "test:phase-secrets": "node --test --test-name-pattern=\"no cookie JWT\" test/phase-completion.test.mjs",
+    "test:phase-login": "node --test --test-name-pattern=\"manual authentication reports\" test/phase-completion.test.mjs",
+    "verify:roadmap-1": "npm run build --silent && node --test --test-name-pattern=\"criterion 1\" test/phase-static.test.mjs",
+    "verify:roadmap-2": "npm run build --silent && node --test --test-name-pattern=\"criterion 2\" test/phase-static.test.mjs",
+    "verify:roadmap-3": "npm run build --silent && node --test --test-name-pattern=\"criterion 3\" test/phase-static.test.mjs",
+    "verify:roadmap-4": "npm run build --silent && node --test --test-name-pattern=\"criterion 4\" test/phase-static.test.mjs",
+    "verify:roadmap-5": "npm run build --silent && node --test --test-name-pattern=\"criterion 5\" test/phase-static.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
+  }
+}

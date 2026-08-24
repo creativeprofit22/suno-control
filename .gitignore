@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.suno-control/
+browser-profile/
+downloads/
+logs/
+local-state/
+.env
+.env.*
+!.env.example
+playwright/.auth/
+**/storage-state*.json
+*.log
