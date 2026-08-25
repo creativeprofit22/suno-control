@@ -5,13 +5,19 @@ import type { RuntimePaths } from "./runtime-paths.js";
 const SUNO_CREATE_URL = "https://suno.com/create";
 const loginControlName = /^(sign in|sign up|log in|create account)$/i;
 
-export async function launchSunoBrowser(paths: RuntimePaths): Promise<BrowserContext> {
+export interface SunoBrowser {
+  context: BrowserContext;
+  page: Page;
+}
+
+export async function launchSunoBrowser(paths: RuntimePaths): Promise<SunoBrowser> {
   await Promise.all([
     mkdir(paths.profile, { recursive: true }),
     mkdir(paths.downloads, { recursive: true }),
   ]);
 
   const context = await chromium.launchPersistentContext(paths.profile, {
+    channel: "chrome",
     headless: false,
     downloadsPath: paths.downloads,
     chromiumSandbox: true,
@@ -20,15 +26,14 @@ export async function launchSunoBrowser(paths: RuntimePaths): Promise<BrowserCon
   try {
     const page = context.pages()[0] ?? await context.newPage();
     await page.goto(SUNO_CREATE_URL, { waitUntil: "domcontentloaded" });
-    return context;
+    return { context, page };
   } catch (error) {
     await context.close().catch(() => undefined);
     throw error;
   }
 }
 
-export async function isLoginRequired(context: BrowserContext): Promise<boolean> {
-  const page = activePage(context);
+export async function isLoginRequired(page: Page): Promise<boolean> {
   const path = new URL(page.url()).pathname.toLowerCase();
   if (/\/(?:sign-?in|sign-?up|login)(?:\/|$)/.test(path)) return true;
 
@@ -36,11 +41,4 @@ export async function isLoginRequired(context: BrowserContext): Promise<boolean>
     .getByRole("button", { name: loginControlName })
     .or(page.getByRole("link", { name: loginControlName }));
   return controls.first().isVisible();
-}
-
-function activePage(context: BrowserContext): Page {
-  const pages = context.pages();
-  const page = pages.at(-1);
-  if (!page || page.isClosed()) throw new Error("Browser page is closed.");
-  return page;
 }

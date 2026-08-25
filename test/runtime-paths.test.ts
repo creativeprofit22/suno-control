@@ -13,7 +13,7 @@ test("uses dedicated descendants of the application runtime root", () => {
     const relative = path.relative(paths.root, candidate);
     assert.ok(relative && !relative.startsWith("..") && !path.isAbsolute(relative));
   }
-  assert.equal(paths.profile, path.join(paths.root, "browser-profile"));
+  assert.equal(paths.profile, path.join(paths.root, "chrome-profile"));
   assert.equal(paths.downloads, path.join(paths.root, "downloads"));
 });
 

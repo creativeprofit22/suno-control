@@ -11,3 +11,4 @@ local-state/
 playwright/.auth/
 **/storage-state*.json
 *.log
+.gg/screenshots/

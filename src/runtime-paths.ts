@@ -8,7 +8,7 @@ export interface RuntimePaths {
 
 export function resolveRuntimePaths(projectRoot: string): RuntimePaths {
   const root = path.resolve(projectRoot, ".suno-control");
-  const profile = assertPathContained(root, path.resolve(root, "browser-profile"));
+  const profile = assertPathContained(root, path.resolve(root, "chrome-profile"));
   const downloads = assertPathContained(root, path.resolve(root, "downloads"));
   return { root, profile, downloads };
 }

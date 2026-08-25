@@ -1,51 +1,81 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import test from "node:test";
-import { parseSunoJob } from "../dist/src/job.js";
-import { resolveRuntimePaths } from "../dist/src/runtime-paths.js";
 
-const root = path.resolve(import.meta.dirname, "..");
-const read = file => readFile(path.join(root, file), "utf8");
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("criterion 1: documented command validates prompt and generation options", async () => {
-  const [readme, manifest] = await Promise.all([read("README.md"), read("package.json")]);
-  assert.match(readme, /npm start -- --prompt .*--style .*--model .*--instrumental/);
-  assert.match(JSON.parse(manifest).scripts.start, /dist\/src\/cli\.js/);
-  assert.deepEqual(parseSunoJob(["--prompt", "test", "--style", "ambient", "--model", "model", "--instrumental"]), {
-    prompt: "test",
-    options: { style: "ambient", model: "model", instrumental: true },
-  });
+test("criterion 1: queued jobs use confirmed semantic Create controls", async () => {
+  const [submission, cli, fixtures] = await Promise.all([
+    read("src/submission.ts"),
+    read("src/cli.ts"),
+    read("test/submission.test.ts"),
+  ]);
+  assert.match(cli, /submit\(page, job, waitForChallenge\)/);
+  assert.match(submission, /getByRole\("tab", \{ name: "Advanced", exact: true \}\)/);
+  assert.match(submission, /getByRole\("textbox", \{ name: LYRICS_PROMPT, exact: true \}\)/);
+  assert.match(submission, /getByRole\("radio", \{ name: "Instrumental", exact: true \}\)/);
+  assert.match(submission, /getByRole\("button", \{ name: "Create song", exact: true \}\)/);
+  assert.match(fixtures, /fills semantic fields, selects the exact model, and submits once/);
 });
 
-test("criterion 2: persistent Chromium is bound to the dedicated profile", async () => {
-  const paths = resolveRuntimePaths(root);
-  const source = await read("src/browser.ts");
-  assert.equal(paths.profile, path.join(root, ".suno-control", "browser-profile"));
-  assert.match(source, /chromium\.launchPersistentContext\(paths\.profile/);
-  assert.match(source, /headless: false/);
-  assert.doesNotMatch(source, /executablePath|\bchannel\b|process\.env/);
+test("criterion 2: submission relies on bounded locator waits and one click", async () => {
+  const [submission, fixtures] = await Promise.all([
+    read("src/submission.ts"),
+    read("test/submission.test.ts"),
+  ]);
+  assert.match(submission, /waitFor\(\{ state: "visible", timeout: RESULT_TIMEOUT_MS \}\)/);
+  assert.match(submission, /Promise\.any/);
+  assert.doesNotMatch(submission, /waitForTimeout|\.mouse\.|\.keyboard\.type|force\s*:/i);
+  assert.match(fixtures, /does not retry after an ambiguous post-click timeout/);
 });
 
-test("criterion 3: runtime artifacts are excluded from version control", async () => {
-  const entries = (await read(".gitignore")).split(/\r?\n/);
-  for (const entry of [".suno-control/", "browser-profile/", "downloads/", "logs/", "local-state/", "*.log"]) {
-    assert.ok(entries.includes(entry), `missing ignore entry: ${entry}`);
+test("criterion 3: every required terminal state has a stable outcome", async () => {
+  const [submission, cli] = await Promise.all([read("src/submission.ts"), read("src/cli.ts")]);
+  for (const status of [
+    "submitted",
+    "login-required",
+    "validation-error",
+    "rate-limited",
+    "changed-ui",
+  ]) {
+    assert.match(submission, new RegExp(`status: "${status}"`));
   }
+  assert.match(submission, /interactive-challenge/);
+  assert.match(cli, /EXIT_VALIDATION = 5/);
+  assert.match(cli, /EXIT_RATE_LIMITED = 6/);
+  assert.match(cli, /EXIT_CHANGED_UI = 7/);
 });
 
-test("criterion 4: no secret export or storage-state surface exists", async () => {
-  const source = (await Promise.all([
-    read("src/browser.ts"), read("src/cli.ts"), read("src/job.ts"), read("src/runtime-paths.ts"),
-  ])).join("\n");
-  assert.doesNotMatch(source, /storageState|cookies?\b|JWT|remote-debugging|executablePath|\bchannel\b|suno\.com\/api|api\.suno/i);
-  assert.match(await read(".gitignore"), /\*\*\/storage-state\*\.json/);
+test("criterion 4: challenges pause for an explicit user continuation", async () => {
+  const [submission, cli, fixtures] = await Promise.all([
+    read("src/submission.ts"),
+    read("src/cli.ts"),
+    read("test/submission.test.ts"),
+  ]);
+  assert.match(submission, /await waitForChallengeContinue\(\)/);
+  assert.match(cli, /Interactive challenge detected\. Complete it in Chrome, then press Enter/);
+  assert.match(fixtures, /waits for explicit challenge continuation before acting/);
+  assert.match(fixtures, /without clicking twice/);
 });
 
-test("criterion 5: login remains manual and bypass-free", async () => {
-  const [browser, cli] = await Promise.all([read("src/browser.ts"), read("src/cli.ts")]);
-  assert.match(cli, /Authenticate manually in the visible Suno browser/);
-  assert.match(cli, /Press Enter after login to re-check/);
-  assert.match(cli, /Login is still required/);
-  assert.doesNotMatch(`${browser}\n${cli}`, /stealth|captcha|challenge|request interception|bypass/i);
+test("criterion 5: prohibited authentication and evasion techniques stay absent", async () => {
+  const source = (
+    await Promise.all([
+      read("src/browser.ts"),
+      read("src/cli.ts"),
+      read("src/submission.ts"),
+      read("src/runtime-paths.ts"),
+    ])
+  ).join("\n");
+  for (const prohibited of [
+    /storageState|\.cookies\s*\(|addCookies|connectOverCDP|remote-debugging/i,
+    /page\.route|context\.route|request\.newContext|\.on\(["']request/i,
+    /ignoreDefaultArgs|navigator\.webdriver|fingerprint|stealth/i,
+    /waitForTimeout|force\s*:|\.mouse\.|\.keyboard\.type/i,
+    /api\.suno|\/api\/.*generate|clerk.*token|jwt/i,
+  ]) {
+    assert.doesNotMatch(source, prohibited);
+  }
+  assert.match(source, /channel: "chrome"/);
+  assert.match(source, /chromium\.launchPersistentContext/);
 });
