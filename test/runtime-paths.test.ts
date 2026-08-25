@@ -9,12 +9,19 @@ test("uses dedicated descendants of the application runtime root", () => {
   const paths = resolveRuntimePaths(projectRoot);
 
   assert.equal(paths.root, path.resolve(projectRoot, ".suno-control"));
-  for (const candidate of [paths.profile, paths.downloads]) {
+  for (const candidate of [
+    paths.profile,
+    paths.downloads,
+    paths.smokeScreenshot,
+    paths.smokeOutcome,
+  ]) {
     const relative = path.relative(paths.root, candidate);
     assert.ok(relative && !relative.startsWith("..") && !path.isAbsolute(relative));
   }
   assert.equal(paths.profile, path.join(paths.root, "chrome-profile"));
   assert.equal(paths.downloads, path.join(paths.root, "downloads"));
+  assert.equal(paths.smokeScreenshot, path.join(paths.root, "smoke", "live-smoke.png"));
+  assert.equal(paths.smokeOutcome, path.join(paths.root, "smoke", "outcome.json"));
 });
 
 test("rejects paths escaping the runtime root", () => {

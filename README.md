@@ -48,6 +48,23 @@ The CLI opens `https://suno.com/create`, selects **Advanced**, and uses the curr
 
 Confirmed model names at implementation time are `v5.5`, `v5`, `v4.5+`, `v4.5`, `v4.5-all`, `v4`, `v3.5`, and `v3`. Suno can change availability. Missing or ambiguous controls fail closed as `changed-ui`.
 
+## Non-submitting live smoke check
+
+Close every Chrome window using the dedicated profile, then run:
+
+```sh
+npm run smoke:live
+```
+
+This opens the same production Create navigation, readiness classification, challenge pause, and field-mapping path with a fixed harmless test job. Its separate smoke runner has no submission call and never clicks **Create**.
+
+The command prints a JSON outcome and saves private local artifacts under `.suno-control/smoke/`:
+
+- `live-smoke.png` — screenshot after mapping or classification;
+- `outcome.json` — status, challenge-pause state, `submitted: false`, and screenshot path.
+
+Exit codes are `0` for ready, `3` for login required, `4` for browser or artifact failure, and `7` for changed UI. The screenshot can contain account details; keep the ignored `.suno-control/` directory private.
+
 ## Outcomes
 
 The process prints one stable outcome and exits distinctly:
@@ -72,7 +89,7 @@ All runtime material remains inside `.suno-control/`:
 
 Never copy, publish, or share `.suno-control/`. Deleting the profile logs it out. Only one Chrome process can own the profile at once.
 
-The application does not export storage state, read cookies or tokens, intercept requests, expose remote debugging, modify browser-identifying signals, use stealth behavior, simulate human input, solve challenges, call private Suno APIs, or capture screenshots, traces, and network traffic.
+The application does not export storage state, read cookies or tokens, intercept requests, expose remote debugging, modify browser-identifying signals, use stealth behavior, simulate human input, solve challenges, call private Suno APIs, or capture traces and network traffic. Only `smoke:live` captures the documented local screenshot.
 
 ## Development
 

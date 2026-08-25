@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc",
     "start": "npm run build && node dist/src/cli.js",
+    "smoke:live": "npm run build && node dist/src/smoke-cli.js",
     "test": "npm run build --silent && node --test dist/test/*.test.js",
     "install-browser": "playwright install chromium",
     "test:phase-command": "node --test --test-name-pattern=\"documented command starts\" test/phase-completion.test.mjs",

@@ -1,7 +1,7 @@
-import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import type { BrowserContext, Page } from "playwright";
 import { launchSunoBrowser, isLoginRequired } from "./browser.js";
+import { waitForChallengeContinue } from "./challenge.js";
 import { parseSunoJob, type SunoJob } from "./job.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 import { submitSunoJob, type SubmissionOutcome } from "./submission.js";
@@ -48,8 +48,7 @@ export async function runBrowserSession(
   job: SunoJob,
   submit: SubmitJob = submitSunoJob,
   loginRequired: (page: Page) => Promise<boolean> = isLoginRequired,
-  waitForChallenge: () => Promise<void> = () =>
-    waitForEnter("Interactive challenge detected. Complete it in Chrome, then press Enter: "),
+  waitForChallenge: () => Promise<void> = waitForChallengeContinue,
 ): Promise<number> {
   try {
     if (await loginRequired(page)) {
@@ -101,21 +100,6 @@ function browserLaunchMessage(error: unknown): string {
   return "Browser could not start. Close the dedicated Chrome window and verify Chrome is installed.";
 }
 
-async function waitForEnter(prompt: string): Promise<void> {
-  const input = createInterface({ input: process.stdin, output: process.stdout });
-  const controller = new AbortController();
-  const interrupt = (): void => controller.abort();
-  process.once("SIGINT", interrupt);
-  process.once("SIGTERM", interrupt);
-
-  try {
-    await input.question(prompt, { signal: controller.signal });
-  } finally {
-    process.removeListener("SIGINT", interrupt);
-    process.removeListener("SIGTERM", interrupt);
-    input.close();
-  }
-}
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await main();

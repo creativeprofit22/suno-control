@@ -4,13 +4,17 @@ export interface RuntimePaths {
   root: string;
   profile: string;
   downloads: string;
+  smokeScreenshot: string;
+  smokeOutcome: string;
 }
 
 export function resolveRuntimePaths(projectRoot: string): RuntimePaths {
   const root = path.resolve(projectRoot, ".suno-control");
   const profile = assertPathContained(root, path.resolve(root, "chrome-profile"));
   const downloads = assertPathContained(root, path.resolve(root, "downloads"));
-  return { root, profile, downloads };
+  const smokeScreenshot = assertPathContained(root, path.resolve(root, "smoke", "live-smoke.png"));
+  const smokeOutcome = assertPathContained(root, path.resolve(root, "smoke", "outcome.json"));
+  return { root, profile, downloads, smokeScreenshot, smokeOutcome };
 }
 
 export function assertPathContained(root: string, candidate: string): string {

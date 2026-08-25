@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
 import test, { after, before } from "node:test";
 import { chromium, type Browser, type Page } from "playwright";
 import type { SunoJob } from "../src/job.js";
+import { runLiveSmoke } from "../src/smoke.js";
 import { submitSunoJob } from "../src/submission.js";
 
 const LYRICS_PROMPT =
@@ -150,6 +154,19 @@ const fixture = async (
 const submitCount = (page: Page): Promise<number> =>
   page.evaluate(() => Number((window as typeof window & { submits?: number }).submits ?? 0));
 
+const smokeArtifacts = async (): Promise<{
+  root: string;
+  screenshot: string;
+  outcome: string;
+}> => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "suno-control-smoke-"));
+  return {
+    root,
+    screenshot: path.join(root, "live-smoke.png"),
+    outcome: path.join(root, "outcome.json"),
+  };
+};
+
 test("fills semantic fields, selects the exact model, and submits once", async () => {
   const { page, navigation, requestedUrls } = await fixture();
   const navigationStart = requestedUrls.length;
@@ -167,6 +184,67 @@ test("fills semantic fields, selects the exact model, and submits once", async (
   assert.equal(await page.getByRole("radio", { name: "Prompt" }).isChecked(), true);
   assert.equal(await submitCount(page), 1);
   await page.close();
+});
+
+test("live smoke maps fields and saves artifacts without submitting", async () => {
+  const { page, navigation } = await fixture();
+  const artifacts = await smokeArtifacts();
+
+  try {
+    const outcome = await runLiveSmoke(
+      page,
+      job({ style: "ambient", model: "v5" }),
+      async () => undefined,
+      artifacts,
+      navigation,
+    );
+
+    assert.deepEqual(outcome, {
+      status: "ready",
+      challengePaused: false,
+      submitted: false,
+      screenshot: artifacts.screenshot,
+    });
+    assert.equal(await submitCount(page), 0);
+    assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "A midnight train");
+    assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "ambient");
+    assert.deepEqual([...await readFile(artifacts.screenshot)].slice(0, 4), [137, 80, 78, 71]);
+    assert.deepEqual(JSON.parse(await readFile(artifacts.outcome, "utf8")), outcome);
+  } finally {
+    await page.close();
+    await rm(artifacts.root, { recursive: true, force: true });
+  }
+});
+
+test("live smoke challenge continuation never enters the submission path", async () => {
+  const { page, navigation } = await fixture("initial-challenge");
+  const artifacts = await smokeArtifacts();
+  let challengeCalls = 0;
+
+  try {
+    const outcome = await runLiveSmoke(
+      page,
+      job(),
+      async () => {
+        challengeCalls++;
+        await page.getByTestId("interactive-challenge").evaluate((element) => {
+          element.setAttribute("hidden", "");
+          (window as typeof window & { renderForm(): void }).renderForm();
+        });
+      },
+      artifacts,
+      navigation,
+    );
+
+    assert.equal(outcome.status, "ready");
+    assert.equal(outcome.submitted, false);
+    assert.equal(outcome.challengePaused, true);
+    assert.equal(challengeCalls, 1);
+    assert.equal(await submitCount(page), 0);
+  } finally {
+    await page.close();
+    await rm(artifacts.root, { recursive: true, force: true });
+  }
 });
 
 test("leaves omitted optional fields untouched", async () => {

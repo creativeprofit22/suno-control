@@ -6,17 +6,21 @@ const readSource = (path: string): Promise<string> =>
   readFile(new URL(`../../src/${path}`, import.meta.url), "utf8");
 
 test("criterion 2: deterministic Playwright actions exclude sleeps and simulated-human input", async () => {
-  const submission = await readSource("submission.ts");
-  assert.match(submission, /waitFor\(\{ state: "visible", timeout: RESULT_TIMEOUT_MS \}\)/);
-  assert.match(submission, /Promise\.any/);
-  assert.doesNotMatch(submission, /waitForTimeout|force\s*:|\.mouse\.|\.keyboard\.type/i);
+  const source = (
+    await Promise.all([readSource("preparation.ts"), readSource("submission.ts")])
+  ).join("\n");
+  assert.match(source, /waitFor\(\{ state: "visible", timeout: RESULT_TIMEOUT_MS \}\)/);
+  assert.match(source, /Promise\.any/);
+  assert.doesNotMatch(source, /waitForTimeout|force\s*:|\.mouse\.|\.keyboard\.type/i);
 });
 
 test("criterion 5: authentication interception, browser-signal changes, and private endpoints are absent", async () => {
   const source = (
     await Promise.all([
       readSource("browser.ts"),
+      readSource("challenge.ts"),
       readSource("cli.ts"),
+      readSource("preparation.ts"),
       readSource("runtime-paths.ts"),
       readSource("submission.ts"),
     ])
