@@ -12,3 +12,5 @@ playwright/.auth/
 **/storage-state*.json
 *.log
 .gg/screenshots/
+.gg/uploads/
+.gg/plans/*.md
