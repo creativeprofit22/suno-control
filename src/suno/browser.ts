@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { SUNO_CREATE_URL, type RuntimePaths } from "../config.js";
-import { isLoginUrl, loginLocators } from "./selectors.js";
+import { isLoginUrl, loginLocators } from "./page-state.js";
 
 export { SUNO_CREATE_URL } from "../config.js";
 

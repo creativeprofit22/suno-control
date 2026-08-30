@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc",
     "start": "npm run build && node dist/src/main.js",
+    "assist": "npm run build && node dist/src/assist-cli.js",
     "smoke:live": "npm run build && node dist/src/smoke-cli.js",
     "test": "npm run build --silent && node test/roadmap-runner.mjs",
     "test:queue": "node --test dist/test/queue.test.js",

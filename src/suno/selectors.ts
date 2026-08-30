@@ -1,9 +1,10 @@
 import type { Locator, Page } from "playwright";
-import { SUNO_ORIGIN } from "../config.js";
 import type { ReceiptItem } from "../domain/job.js";
+import { createFormControls } from "./form-controls.js";
+import { challengeLocators, classifySunoLocation, loginLocators } from "./page-state.js";
 
-export const LYRICS_PROMPT =
-  "What do you want your lyrics to be about? Suno will write new lyrics every generation. Leave this blank for a random topic.";
+export { LYRICS_PROMPT } from "./form-controls.js";
+export { challengeLocators, classifySunoLocation, isLoginUrl, loginLocators, type SunoLocation } from "./page-state.js";
 
 export const SELECTOR_KEYS = [
   "advancedTab", "moreOptions", "lyricsPrompt", "stylePrompt", "instrumentalMode", "createButton",
@@ -25,27 +26,8 @@ export interface CreateStructureLocators {
   downloadControl: Locator;
 }
 
-export const loginLocators = (page: Page): Locator[] => [
-  page.getByRole("button", { name: /^(log|sign) in$/i }),
-  page.getByRole("link", { name: /^(log|sign) in$/i }),
-  page.getByTestId("login-required"),
-];
-
-export const challengeLocators = (page: Page): Locator[] => [
-  page.getByTestId("interactive-challenge"),
-  page.getByRole("dialog", { name: /captcha|security check|verify.*human/i }),
-  page.locator('iframe[title*="captcha" i], iframe[title*="challenge" i]'),
-];
-
 export const createFormLocators = (page: Page) => ({
-  advanced: page.getByRole("tab", { name: "Advanced", exact: true }),
-  moreOptions: page.getByRole("button", { name: "More Options", exact: true }),
-  style: page.locator('textarea[maxlength="1000"]'),
-  instrumental: page.getByRole("radio", { name: "Instrumental", exact: true }),
-  promptMode: page.getByRole("radio", { name: "Prompt", exact: true }),
-  lyrics: page.getByRole("textbox", { name: LYRICS_PROMPT, exact: true }),
-  modelButton: page.getByRole("button", { name: /^v\d/i }).first(),
-  modelOption: (name: string) => page.getByRole("menu").getByText(name, { exact: true }),
+  ...createFormControls(page),
   create: page.getByRole("button", { name: "Create song", exact: true }),
 });
 
@@ -99,17 +81,3 @@ export const titleLocators = (container: Locator) => ({
   heading: container.getByRole("heading").first(),
   link: container.getByRole("link").first(),
 });
-
-export const isLoginUrl = (url: URL): boolean => /\/(?:sign-?in|sign-?up|login)(?:\/|$)/.test(url.pathname.toLowerCase());
-
-export type SunoLocation = "suno-create" | "suno-login" | "suno-other" | "external" | "unknown";
-export function classifySunoLocation(value: string): SunoLocation {
-  try {
-    const url = new URL(value);
-    if (url.origin !== SUNO_ORIGIN) return "external";
-    if (isLoginUrl(url)) return "suno-login";
-    return url.pathname === "/create" ? "suno-create" : "suno-other";
-  } catch {
-    return "unknown";
-  }
-}

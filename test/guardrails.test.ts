@@ -7,7 +7,11 @@ const readSource = (path: string): Promise<string> =>
 
 test("criterion 2: deterministic Playwright actions exclude sleeps and simulated-human input", async () => {
   const source = (
-    await Promise.all([readSource("suno/preparation.ts"), readSource("suno/submission.ts")])
+    await Promise.all([
+      readSource("suno/page-state.ts"),
+      readSource("suno/preparation.ts"),
+      readSource("suno/submission.ts"),
+    ])
   ).join("\n");
   assert.match(source, /waitFor\(\{ state: "visible", timeout: RESULT_TIMEOUT_MS \}\)/);
   assert.match(source, /Promise\.any/);

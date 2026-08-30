@@ -28,6 +28,24 @@ Sign into Suno, confirm Create loads, then close **every** window using this pro
 
 To reset a broken dedicated profile, close Chrome first, then move or delete only `.suno-control/chrome-profile`. This logs Suno out but preserves job state and downloaded outputs. Never delete all of `.suno-control` to reset login.
 
+## Prepare one job for manual review
+
+Close all dedicated-profile windows, then run:
+
+```sh
+npm run assist -- --prompt "a midnight train" --style "ambient" --model "v5"
+```
+
+Assisted mode accepts exactly one validated job; queue manifests, concurrency, and retries are unavailable. It opens the same visible persistent Chrome profile and navigates to Suno Create.
+
+The automation pauses 1,000 ms between controls and progressively fills text at a fixed 75 ms per character. This fixed pacing is for visible operator review, not stealth or “humanization.” Multiline prompts are filled without keyboard Enter events.
+
+If login or an interactive challenge appears, complete it manually in Chrome and press Enter only in the terminal when prompted. Terminal input is never sent to the page. One manual continuation is allowed; an unresolved gate exits distinctly.
+
+When preparation finishes, automation stops. Review every field and click **Create** manually; assisted mode never clicks it. The process observes only browser closure after readiness, so it does not inspect results, status, network traffic, or downloads. Close the dedicated browser window to exit.
+
+Assisted mode creates no job state because it cannot know what you do manually. Visible fixed pacing does not authorize automation, bypass Suno controls, prevent challenges, or guarantee compliance with Suno terms or protection from account action.
+
 ## Submit one job
 
 ```sh
@@ -130,4 +148,4 @@ npm run test:smoke
 npm run test:docs
 ```
 
-Fixture tests never submit to Suno production. `npm run smoke:live` is the only live check and remains non-submitting.
+Fixture tests never submit to Suno production. Live assisted and smoke modes remain non-submitting; only the user may submit after assisted preparation.
