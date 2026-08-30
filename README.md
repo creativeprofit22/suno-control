@@ -1,24 +1,22 @@
 # suno-control
 
-A local Windows CLI that validates one Suno job and submits it through Suno's visible Create page. It uses Playwright locators only; authentication and interactive challenges remain manual.
+A local Windows CLI that submits bounded Suno job queues through the public, visible Create page and saves completed media. Authentication and interactive challenges remain manual.
 
-## Requirements
+## Requirements and setup
 
 - Node.js 20 or newer
 - Google Chrome installed
 
-## Setup
-
 ```sh
-npm install
+npm ci
 npm run install-browser
 ```
 
-The bundled Chromium installed by `install-browser` is used only by controlled fixture tests. Runtime automation uses installed Google Chrome so the dedicated profile matches the browser used for manual authentication.
+Runtime automation uses installed Chrome with `.suno-control/chrome-profile`. The installed Playwright Chromium is only for fixture tests. Never use your normal Chrome profile.
 
-## Authenticate once
+## Authenticate and reset the dedicated profile
 
-Google rejects sign-in inside Playwright-controlled browsers. Authenticate before running the CLI by opening ordinary Chrome with the dedicated project profile from PowerShell:
+Open ordinary Chrome from PowerShell before the first run:
 
 ```powershell
 & "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" `
@@ -26,76 +24,110 @@ Google rejects sign-in inside Playwright-controlled browsers. Authenticate befor
   "https://suno.com/create"
 ```
 
-Sign into Suno with the provider originally connected to the account. If Chrome offers to enable browser sync, choose **Use Chrome without an account**; Suno's site session is sufficient. Confirm Create loads, then close every window using this dedicated profile before running the CLI.
+Sign into Suno, confirm Create loads, then close **every** window using this profile. Only one Chrome process can own it. If login or a challenge appears during automation, complete it manually in the visible browser, close that browser, then rerun the same job.
 
-Never point the CLI at your normal Chrome profile.
+To reset a broken dedicated profile, close Chrome first, then move or delete only `.suno-control/chrome-profile`. This logs Suno out but preserves job state and downloaded outputs. Never delete all of `.suno-control` to reset login.
 
-## Submit a job
+## Submit one job
 
 ```sh
 npm start -- --prompt "a midnight train" --style "ambient" --model "v5" --instrumental
 ```
 
-`--prompt` is required. `--style` and `--model` are optional non-blank strings. `--instrumental` is a boolean flag. Job contents are never printed.
+`--prompt` is required. `--style` and `--model` are optional non-blank strings. `--instrumental` is a boolean flag. Job contents are never printed. Submission clicks **Create song** once.
 
-The CLI opens `https://suno.com/create`, selects **Advanced**, and uses the current visible controls:
+## Submit a batch
 
-- non-instrumental prompts use the exact **Prompt** lyrics mode;
-- `--style` fills the confirmed 1,000-character Styles field;
-- instrumental jobs select the exact **Instrumental** radio and combine prompt plus optional style in Styles;
-- `--model` selects an exact visible model name from Suno's model menu;
-- submission clicks **Create song** once without retries.
+Create `jobs.json` as an array of 1–100 exact job objects:
 
-Confirmed model names at implementation time are `v5.5`, `v5`, `v4.5+`, `v4.5`, `v4.5-all`, `v4`, `v3.5`, and `v3`. Suno can change availability. Missing or ambiguous controls fail closed as `changed-ui`.
+```json
+[
+  {
+    "prompt": "a midnight train",
+    "options": { "instrumental": false, "style": "ambient", "model": "v5" }
+  },
+  {
+    "prompt": "bright brass fanfare",
+    "options": { "instrumental": true }
+  }
+]
+```
+
+Each object permits only `prompt` and `options`. `options` requires boolean `instrumental` and permits only optional non-blank `style` and `model`. The manifest must be a regular JSON file no larger than 1 MiB. Duplicate deterministic jobs are rejected.
+
+```sh
+npm start -- --jobs jobs.json
+npm start -- --jobs jobs.json --concurrency 2 --retries 1
+```
+
+`--jobs` is mutually exclusive with generation fields. `--concurrency` defaults to `1` and accepts only `1` or `2`. `--retries` defaults to `0` and accepts only `0` or `1`.
+
+Concurrency `2` opens two isolated Create pages in one persistent profile context. It increases account pressure; use the sequential default unless the extra pressure is understood.
+
+A retry is allowed only for browser launch, navigation, or session failure while durable state proves no submission attempt. The CLI never retries a Create click or retries login, challenge, validation, changed UI, ambiguous acceptance, rate limiting, or account blocking. Rate-limit or account-block outcomes stop new dispatch; already running jobs settle and untouched jobs remain queued.
+
+## Status, exits, and recovery
+
+Every transition prints queue position, an eight-character deterministic identifier, retry attempt when applicable, and a stable status. The final line counts terminal statuses. It never prints prompts, styles, manifest data, or raw errors.
+
+The aggregate exit is `0` only when every job completed. Otherwise the highest numeric action-priority exit is returned:
+
+- `2` invalid command or manifest
+- `3` login required before submission
+- `4` browser or navigation failure
+- `5` validation rejection
+- `6` visible rate limit
+- `7` changed or ambiguous submission UI
+- `8` visible generation failure
+- `9` blocked work or jobs left queued after enforcement
+- `10` ambiguous or unsafe local state requiring review
+
+Before Chrome opens, every batch entry gets validated durable state under `jobs/<sha256>/`. Rerunning identical normalized input resumes that state. Completed jobs with present outputs do not reopen Chrome. Confirmed work resumes observation. Attempted-but-unconfirmed work remains `unknown` and never clicks Create again.
+
+## Redacted diagnostics
+
+Incomplete jobs write `.suno-control/jobs/<sha256>/diagnostic.json`. Smoke writes `.suno-control/smoke/outcome.json`. Diagnostic failure never replaces the original job outcome.
+
+Versioned diagnostic JSON contains only timestamp, stable identifier, fixed stage/category, a sanitized location classification, and fixed count/visibility entries for:
+
+- Advanced tab, More Options, lyrics prompt, Styles field, Instrumental mode, and Create control;
+- login marker, challenge marker, result container, and Download control.
+
+It excludes raw URLs, query strings, page text/HTML/title, exception messages, screenshots, console/network data, cookies, headers, storage state, prompts, and account names. Writes are contained, atomic, and use restrictive local permissions where supported.
+
+The selectors most likely to drift are the Advanced tab, More Options button, exact lyrics label, Styles `maxlength`, model menu, Create button, result groups, and Download control.
 
 ## Non-submitting live smoke check
 
-Close every Chrome window using the dedicated profile, then run:
+Close all dedicated-profile windows, then run:
 
 ```sh
 npm run smoke:live
 ```
 
-This opens the same production Create navigation, readiness classification, challenge pause, and field-mapping path with a fixed harmless test job. Its separate smoke runner has no submission call and never clicks **Create**.
+Run smoke before submitting work after Suno changes its UI. It uses the same Create preparation and selector probe, but its dependency graph cannot reach submission and it never clicks Create or consumes credits. It may pause for manual challenge completion. Exit codes are `0` ready, `3` login required, `4` browser/artifact failure, and `7` changed UI.
 
-The command prints a JSON outcome and saves private local artifacts under `.suno-control/smoke/`:
+Smoke saves `.suno-control/smoke/live-smoke.png` and the redacted `outcome.json`. The screenshot is intentionally local and may contain account details; the JSON does not.
 
-- `live-smoke.png` — screenshot after mapping or classification;
-- `outcome.json` — status, challenge-pause state, `submitted: false`, and screenshot path.
+## Local data and operating risk
 
-Exit codes are `0` for ready, `3` for login required, `4` for browser or artifact failure, and `7` for changed UI. The screenshot can contain account details; keep the ignored `.suno-control/` directory private.
+`.suno-control/chrome-profile` stores the isolated session. `downloads/` is temporary staging. `jobs/<sha256>/state.json` stores private job inputs and recovery data. `jobs/<sha256>/outputs/` stores media. Existing output files are never overwritten.
 
-## Outcomes
+Keep `.suno-control` private, avoid shared machines, and protect the source manifest. Never publish or copy the profile. The CLI does not export sessions, read cookies or tokens, intercept requests, call private Suno APIs, manipulate browser identity, use stealth or proxies, solve challenges, or capture traces/network traffic.
 
-The process prints one stable outcome and exits distinctly:
-
-- `0` — submitted
-- `3` — login required
-- `4` — browser session failed
-- `5` — Suno validation error
-- `6` — Suno rate limit
-- `7` — changed or unconfirmed UI
-
-A post-click timeout never retries because Suno may have accepted the job already.
-
-If CAPTCHA or another interactive challenge appears, automation pauses without touching the page. Complete it manually in Chrome and press Enter. Submission resumes only after that explicit continuation.
-
-## Local browser data and privacy
-
-All runtime material remains inside `.suno-control/`:
-
-- `chrome-profile/` stores the isolated Suno session;
-- `downloads/` stores accepted browser downloads.
-
-Never copy, publish, or share `.suno-control/`. Deleting the profile logs it out. Only one Chrome process can own the profile at once.
-
-The application does not export storage state, read cookies or tokens, intercept requests, expose remote debugging, modify browser-identifying signals, use stealth behavior, simulate human input, solve challenges, call private Suno APIs, or capture traces and network traffic. Only `smoke:live` captures the documented local screenshot.
+Browser automation may violate Suno terms or trigger rate limits, account blocks, suspension, or other enforcement. Concurrency increases that risk. This tool provides no guarantee against account action; use only an account and content you are authorized to operate.
 
 ## Development
 
 ```sh
 npm run build
 npm test
+npm run test:queue
+npm run test:limits
+npm run test:diagnostics
+npm run test:cli
+npm run test:smoke
+npm run test:docs
 ```
 
-Tests use controlled local page fixtures and never submit to Suno production. CI installs the pinned Playwright Chromium build before running them.
+Fixture tests never submit to Suno production. `npm run smoke:live` is the only live check and remains non-submitting.

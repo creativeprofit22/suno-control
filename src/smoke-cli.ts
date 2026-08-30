@@ -26,9 +26,9 @@ async function main(): Promise<number> {
       browser.page,
       SMOKE_JOB,
       waitForChallengeContinue,
-      { screenshot: paths.smokeScreenshot, outcome: paths.smokeOutcome },
+      { root: paths.root, screenshot: paths.smokeScreenshot, outcome: paths.smokeOutcome },
     );
-    console.log(JSON.stringify(outcome));
+    console.log(`Smoke ${outcome.status}; submitted=false.`);
     if (outcome.status === "ready") return 0;
     if (outcome.status === "login-required") return 3;
     return 7;

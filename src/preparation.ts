@@ -13,7 +13,7 @@ const DEFAULT_NAVIGATION: SunoNavigation = {
 };
 const ACTION_TIMEOUT_MS = 10_000;
 const RESULT_TIMEOUT_MS = 5_000;
-const LYRICS_PROMPT =
+export const LYRICS_PROMPT =
   "What do you want your lyrics to be about? Suno will write new lyrics every generation. Leave this blank for a random topic.";
 
 export const firstVisible = async (locators: Locator[]): Promise<boolean> => {
@@ -34,6 +34,34 @@ export const challengeLocators = (page: Page): Locator[] => [
   page.getByRole("dialog", { name: /captcha|security check|verify.*human/i }),
   page.locator('iframe[title*="captcha" i], iframe[title*="challenge" i]'),
 ];
+
+export interface CreateStructureLocators {
+  advancedTab: Locator;
+  moreOptions: Locator;
+  lyricsPrompt: Locator;
+  stylePrompt: Locator;
+  instrumentalMode: Locator;
+  createButton: Locator;
+  loginMarker: Locator;
+  challengeMarker: Locator;
+  resultContainer: Locator;
+  downloadControl: Locator;
+}
+
+export const createStructureLocators = (page: Page): CreateStructureLocators => ({
+  advancedTab: page.getByRole("tab", { name: "Advanced", exact: true }),
+  moreOptions: page.getByRole("button", { name: "More Options", exact: true }),
+  lyricsPrompt: page.getByRole("textbox", { name: LYRICS_PROMPT, exact: true }),
+  stylePrompt: page.locator('textarea[maxlength="1000"]'),
+  instrumentalMode: page.getByRole("radio", { name: "Instrumental", exact: true }),
+  createButton: page.getByRole("button", { name: "Create song", exact: true }),
+  loginMarker: loginLocators(page).reduce((combined, locator) => combined.or(locator)),
+  challengeMarker: challengeLocators(page).reduce((combined, locator) => combined.or(locator)),
+  resultContainer: page.getByRole("table").getByRole("group"),
+  downloadControl: page.getByRole("button", { name: /^download(?: audio)?$/i }).or(
+    page.getByRole("link", { name: /^download(?: audio)?$/i }),
+  ),
+});
 
 export const waitForVisible = async (locator: Locator, status: string): Promise<string> => {
   await locator.first().waitFor({ state: "visible", timeout: RESULT_TIMEOUT_MS });

@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { RuntimePaths } from "./runtime-paths.js";
 
-const SUNO_CREATE_URL = "https://suno.com/create";
+export const SUNO_CREATE_URL = "https://suno.com/create";
 const loginControlName = /^(sign in|sign up|log in|create account)$/i;
 
 export interface SunoBrowser {
@@ -24,11 +24,21 @@ export async function launchSunoBrowser(paths: RuntimePaths): Promise<SunoBrowse
   });
 
   try {
-    const page = context.pages()[0] ?? await context.newPage();
-    await page.goto(SUNO_CREATE_URL, { waitUntil: "domcontentloaded" });
+    const page = await openSunoPage(context, context.pages()[0]);
     return { context, page };
   } catch (error) {
     await context.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function openSunoPage(context: BrowserContext, existing?: Page): Promise<Page> {
+  const page = existing ?? await context.newPage();
+  try {
+    await page.goto(SUNO_CREATE_URL, { waitUntil: "domcontentloaded" });
+    return page;
+  } catch (error) {
+    if (!existing) await page.close().catch(() => undefined);
     throw error;
   }
 }

@@ -33,7 +33,7 @@ type Navigation = Readonly<{ createUrl: string; expectedOrigin: string }>;
 const pages = new Map<string, { mode: Mode; extra: string }>();
 const navigations: string[] = [];
 let nextPageId = 0;
-let browser: Browser;
+let browser: Browser | undefined;
 let server: Server;
 let wrongOriginServer: Server;
 let baseUrl: string;
@@ -113,8 +113,8 @@ before(async () => {
 
   server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", baseUrl);
-    navigations.push(url.href);
     if (url.pathname === "/redirect") {
+      navigations.push(url.href);
       response.writeHead(302, { Location: `${wrongOriginUrl}/create` });
       response.end();
       return;
@@ -124,15 +124,16 @@ before(async () => {
       response.writeHead(404).end();
       return;
     }
+    navigations.push(url.href);
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(html(fixturePage.mode, fixturePage.extra));
   });
   baseUrl = await listen(server);
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true }).catch(() => chromium.launch({ channel: "chrome", headless: true }));
 });
 
 after(async () => {
-  await browser.close();
+  await browser?.close();
   await Promise.all([close(server), close(wrongOriginServer)]);
 });
 
@@ -142,6 +143,7 @@ const fixture = async (
 ): Promise<{ page: Page; navigation: Navigation; requestedUrls: string[] }> => {
   const id = String(nextPageId++);
   pages.set(id, { mode, extra });
+  if (!browser) throw new Error("Test browser did not start.");
   const page = await browser.newPage();
   const createUrl = `${baseUrl}/create?id=${id}`;
   return {
@@ -199,17 +201,16 @@ test("live smoke maps fields and saves artifacts without submitting", async () =
       navigation,
     );
 
-    assert.deepEqual(outcome, {
-      status: "ready",
-      challengePaused: false,
-      submitted: false,
-      screenshot: artifacts.screenshot,
-    });
+    assert.equal(outcome.status, "ready");
+    assert.equal(outcome.challengePaused, false);
+    assert.equal(outcome.submitted, false);
+    assert.equal(outcome.screenshot, artifacts.screenshot);
+    assert.equal(outcome.diagnostic.selectors.createButton.visible, true);
     assert.equal(await submitCount(page), 0);
     assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "A midnight train");
     assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "ambient");
     assert.deepEqual([...await readFile(artifacts.screenshot)].slice(0, 4), [137, 80, 78, 71]);
-    assert.deepEqual(JSON.parse(await readFile(artifacts.outcome, "utf8")), outcome);
+    assert.deepEqual(JSON.parse(await readFile(artifacts.outcome, "utf8")), outcome.diagnostic);
   } finally {
     await page.close();
     await rm(artifacts.root, { recursive: true, force: true });
@@ -442,6 +443,31 @@ test("does not retry after an ambiguous post-click timeout", async () => {
   const { page, navigation } = await fixture("ambiguous");
   assert.deepEqual(await submitSunoJob(page, job(), async () => undefined, navigation), {
     status: "changed-ui",
+  });
+  assert.equal(await submitCount(page), 1);
+  await page.close();
+});
+
+test("persists intent before one click and returns a minimal visible receipt", async () => {
+  const { page, navigation } = await fixture("success", `<div role="table"></div><script>
+    document.querySelector('[aria-label="Create song"]').onclick = () => {
+      window.submits=(window.submits||0)+1;
+      document.querySelector('[role="table"]').innerHTML = '<div role="group" data-testid="track-123"><h2>Visible Song</h2></div>';
+      document.querySelector('[data-testid="submission-success"]').hidden=false;
+    };
+  </script>`);
+  let persistedBeforeClick = false;
+  const outcome = await submitSunoJob(page, job(), async () => undefined, navigation, {
+    beforeClick: async () => {
+      persistedBeforeClick = true;
+      assert.equal(await submitCount(page), 0);
+    },
+  });
+
+  assert.equal(persistedBeforeClick, true);
+  assert.deepEqual(outcome, {
+    status: "submitted",
+    receipt: { items: [{ testId: "track-123", title: "Visible Song" }] },
   });
   assert.equal(await submitCount(page), 1);
   await page.close();
