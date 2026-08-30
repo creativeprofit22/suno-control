@@ -12,6 +12,7 @@ import {
 } from "../src/suno/completion.js";
 import { resolveJobPaths, resolveRuntimePaths } from "../src/config.js";
 import { LocalOutputStore } from "../src/downloads/local-output-store.js";
+import { LocalJobRepository } from "../src/persistence/local-job-repository.js";
 import { createTrackedJob, jobIdentifier, type SubmissionReceipt, type SunoJob, type TrackedJob } from "../src/domain/job.js";
 
 let browser: Browser | undefined;
@@ -35,7 +36,7 @@ const card = (state: string, extra = "", id = "track-1", title = "Song One"): st
     <h2>${title}</h2>${state}${extra}
   </div>`;
 
-test("observes queued to running to completed with bounded attempts", async () => {
+test("criterion 1 completion tracking observes queued to running to completed with bounded attempts", async () => {
   const page = await pageWith(card('<div role="status">Queued</div>'));
   const observed: string[] = [];
   let sleeps = 0;
@@ -68,7 +69,7 @@ test("observes queued to running to completed with bounded attempts", async () =
   }
 });
 
-test("classifies explicit failed, blocked, and contradictory states", async () => {
+test("criterion 1 completion tracking classifies explicit failed, blocked, and contradictory states", async () => {
   const failedPage = await pageWith(card('<div role="alert">Generation failed</div>'));
   const blockedPage = await pageWith('<div data-testid="interactive-challenge">Challenge</div>');
   const ambiguousPage = await pageWith(card('<div role="status">Queued</div><button aria-label="Download">Download</button>'));
@@ -90,7 +91,7 @@ test("receipt reacquisition requires exactly one matching visible container", as
   }
 });
 
-test("observation exhaustion is bounded and actionable", async () => {
+test("criterion 1 completion tracking observation exhaustion is bounded and actionable", async () => {
   const page = await pageWith(card('<div role="status">Queued</div>'));
   let calls = 0;
   try {
@@ -116,7 +117,7 @@ const downloadFixture = async () => {
   return { root, runtime, paths, outputs: new LocalOutputStore(runtime) };
 };
 
-test("real Playwright downloads preserve collisions and record separate outputs", async () => {
+test("criterion 2 Playwright downloads use job-specific local storage", async () => {
   const { root, runtime, paths, outputs } = await downloadFixture();
   const page = await pageWith(
     `${card("", '<a aria-label="Download" href="https://fixture.test/one">Download</a>')}` +
@@ -139,16 +140,7 @@ test("real Playwright downloads preserve collisions and record separate outputs"
     let saved: TrackedJob = createTrackedJob(input);
     saved = await downloadCompletedTracks(page, runtime.downloads, outputs, saved, observation.tracks, { maxAttempts: 2, timeoutMs: 2_000 }, async (job) => { saved = job; });
     assert.equal(saved.status, "completed");
-    assert.equal(saved.prompt, input.prompt);
-    assert.deepEqual(saved.options, { instrumental: false });
-    assert.deepEqual(saved.outputs.map(({ visibleId, title }) => ({ visibleId, title })), [
-      { visibleId: "Song One", title: "Song One" },
-      { visibleId: "Song Two", title: "Song Two" },
-    ]);
-    for (const output of saved.outputs) {
-      assert.match(output.completedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
-      assert.match(output.outputPath ?? "", /^outputs[\\/]/);
-    }
+    assert.ok(saved.outputs.every((output) => output.outputPath?.startsWith(`outputs${path.sep}`)));
     assert.equal(await readFile(path.join(paths.outputs, "Song One.mp3"), "utf8"), "old-one");
     assert.equal(await readFile(path.join(paths.outputs, "Song One-1.mp3"), "utf8"), "new-one");
     assert.equal(await readFile(path.join(paths.outputs, "Song Two.mp3"), "utf8"), "new-two");
@@ -158,7 +150,38 @@ test("real Playwright downloads preserve collisions and record separate outputs"
   }
 });
 
-test("download retries are bounded and never click after an output is recorded", async () => {
+test("criterion 3 downloaded files persist linked local metadata", async () => {
+  const { root, runtime, outputs } = await downloadFixture();
+  const page = await pageWith(card("", '<a aria-label="Download" href="https://fixture.test/metadata">Download</a>'));
+  await page.route("https://fixture.test/metadata", (route) => route.fulfill({
+    body: Buffer.from("audio"),
+    headers: { "content-disposition": 'attachment; filename="Song One.mp3"', "content-type": "audio/mpeg" },
+  }));
+  try {
+    const observation = await classifyVisibleCompletion(page, receipt);
+    assert.equal(observation.status, "completed");
+    if (observation.status !== "completed") throw new Error("Expected completed fixture.");
+    const repository = new LocalJobRepository(runtime);
+    const completedAt = new Date("2026-08-30T00:00:00.000Z");
+    const saved = await downloadCompletedTracks(
+      page, runtime.downloads, outputs, createTrackedJob(input), observation.tracks,
+      { maxAttempts: 1, timeoutMs: 2_000 }, async (job) => repository.save(job), () => completedAt,
+    );
+    assert.equal(saved.status, "completed");
+    assert.deepEqual(await repository.load(saved.id), saved);
+    assert.equal(saved.prompt, input.prompt);
+    assert.deepEqual(saved.options, input.options);
+    assert.deepEqual(saved.outputs, [{
+      visibleId: "Song One", title: "Song One", downloadAttempts: 1,
+      completedAt: completedAt.toISOString(), outputPath: path.join("outputs", "Song One.mp3"),
+    }]);
+  } finally {
+    await page.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("criterion 4 retries are bounded and successful downloads are not duplicated", async () => {
   const { root, runtime, paths, outputs } = await downloadFixture();
   const page = await pageWith(card("", '<button aria-label="Download" onclick="window.clicks=(window.clicks||0)+1">Download</button>'));
   try {

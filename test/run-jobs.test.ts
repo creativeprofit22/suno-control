@@ -42,7 +42,7 @@ class FakeSession implements SunoSession {
   async close(): Promise<void> {}
 }
 
-test("persists attemptedAt before one submission and completes through contracts", async () => {
+test("criterion 4 persists attemptedAt before one submission and completes through contracts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
   try {
     const repository = new MemoryRepository();
@@ -61,7 +61,7 @@ test("persists attemptedAt before one submission and completes through contracts
   }
 });
 
-test("persists observation attempts across restarts and exhausts the global limit", async () => {
+test("criterion 5 persists observation attempts across restarts and exhausts the global limit", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
   try {
     const paths = resolveRuntimePaths(root);
@@ -100,7 +100,7 @@ test("persists observation attempts across restarts and exhausts the global limi
   }
 });
 
-test("never resubmits an ambiguous saved attempt", async () => {
+test("criterion 5 never resubmits an ambiguous saved attempt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
   try {
     const paths = resolveRuntimePaths(root);

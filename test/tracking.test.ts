@@ -30,7 +30,7 @@ test("identifier is deterministic over normalized prompt and options", () => {
   assert.notEqual(jobIdentifier(input), jobIdentifier({ ...input, prompt: "Another train" }));
 });
 
-test("atomically round-trips strict state and timestamped transitions", async () => {
+test("criterion 1 completion tracking persists timestamped transitions", async () => {
   const { root, paths, repository } = await fixture();
   try {
     const queued = createTrackedJob(input, new Date("2026-01-01T00:00:00.000Z"));
@@ -65,7 +65,7 @@ test("malformed, inconsistent, and secret-bearing state fails closed", async () 
   }
 });
 
-test("restart decisions never resubmit attempted work and repair missing outputs", async () => {
+test("criterion 5 restart decisions never resubmit attempted work and repair missing outputs", async () => {
   const { root, paths, repository } = await fixture();
   try {
     const queued = createTrackedJob(input);
@@ -91,7 +91,7 @@ test("restart decisions never resubmit attempted work and repair missing outputs
   }
 });
 
-test("exclusive output persistence preserves colliding media", async () => {
+test("criterion 4 exclusive output persistence preserves colliding media", async () => {
   const { root, runtime, paths, outputs } = await fixture();
   try {
     await mkdir(paths.outputs, { recursive: true });

@@ -39,7 +39,12 @@
     "test:phase-profile": "node --test --test-name-pattern=\"visible persistent Chromium\" test/phase-completion.test.mjs",
     "test:phase-ignores": "node --test --test-name-pattern=\"runtime profile downloads\" test/phase-completion.test.mjs",
     "test:phase-secrets": "node --test --test-name-pattern=\"no cookie JWT\" test/phase-completion.test.mjs",
-    "test:phase-login": "node --test --test-name-pattern=\"manual authentication reports\" test/phase-completion.test.mjs"
+    "test:phase-login": "node --test --test-name-pattern=\"manual authentication reports\" test/phase-completion.test.mjs",
+    "test:phase-completion-1": "node --test --test-name-pattern=\"criterion 1 completion tracking\" dist/test/completion.test.js dist/test/tracking.test.js",
+    "test:phase-completion-2": "node --test --test-name-pattern=\"criterion 2 Playwright downloads\" dist/test/completion.test.js",
+    "test:phase-completion-3": "node --test --test-name-pattern=\"criterion 3 downloaded files\" dist/test/completion.test.js",
+    "test:phase-completion-4": "node --test --test-name-pattern=\"criterion 4\" dist/test/completion.test.js dist/test/run-jobs.test.js dist/test/tracking.test.js",
+    "test:phase-completion-5": "node --test --test-name-pattern=\"criterion 5\" dist/test/run-jobs.test.js dist/test/tracking.test.js"
   },
   "dependencies": {
     "playwright": "1.62.1"
