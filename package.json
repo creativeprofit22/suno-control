@@ -10,7 +10,7 @@
     "build": "tsc",
     "start": "npm run build && node dist/src/main.js",
     "smoke:live": "npm run build && node dist/src/smoke-cli.js",
-    "test": "npm run build --silent && node --test test/architecture.test.mjs dist/test/*.test.js test/phase-static.test.mjs test/phase-baseline.test.mjs",
+    "test": "npm run build --silent && node test/roadmap-runner.mjs",
     "test:queue": "node --test dist/test/queue.test.js",
     "test:limits": "node --test --test-name-pattern=\"explicit concurrency|enforcement stops|retries one|never retries\" dist/test/queue.test.js",
     "test:diagnostics": "node --test dist/test/diagnostics.test.js",
