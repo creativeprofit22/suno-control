@@ -9,10 +9,10 @@ import {
   downloadCompletedTracks,
   observeCompletion,
   reacquireReceipt,
-} from "../src/completion.js";
-import type { SunoJob } from "../src/job.js";
-import { resolveJobPaths, resolveRuntimePaths } from "../src/runtime-paths.js";
-import { createTrackedJob, jobIdentifier, type SubmissionReceipt, type TrackedJob } from "../src/tracking.js";
+} from "../src/suno/completion.js";
+import { resolveJobPaths, resolveRuntimePaths } from "../src/config.js";
+import { LocalOutputStore } from "../src/downloads/local-output-store.js";
+import { createTrackedJob, jobIdentifier, type SubmissionReceipt, type SunoJob, type TrackedJob } from "../src/domain/job.js";
 
 let browser: Browser | undefined;
 const input: SunoJob = { prompt: "A midnight train", options: { instrumental: false } };
@@ -110,13 +110,14 @@ test("observation exhaustion is bounded and actionable", async () => {
 
 const downloadFixture = async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "suno-download-"));
-  const paths = resolveJobPaths(resolveRuntimePaths(root), jobIdentifier(input));
-  await mkdir(paths.outputs, { recursive: true });
-  return { root, paths };
+  const runtime = resolveRuntimePaths(root);
+  const paths = resolveJobPaths(runtime, jobIdentifier(input));
+  await Promise.all([mkdir(paths.outputs, { recursive: true }), mkdir(runtime.downloads, { recursive: true })]);
+  return { root, runtime, paths, outputs: new LocalOutputStore(runtime) };
 };
 
 test("real Playwright downloads preserve collisions and record separate outputs", async () => {
-  const { root, paths } = await downloadFixture();
+  const { root, runtime, paths, outputs } = await downloadFixture();
   const page = await pageWith(
     `${card("", '<a aria-label="Download" href="https://fixture.test/one">Download</a>')}` +
     `${card("", '<a aria-label="Download" href="https://fixture.test/two">Download</a>', "track-2", "Song Two")}`,
@@ -136,7 +137,7 @@ test("real Playwright downloads preserve collisions and record separate outputs"
     assert.equal(observation.status, "completed");
     if (observation.status !== "completed") throw new Error("Expected completed fixture.");
     let saved: TrackedJob = createTrackedJob(input);
-    saved = await downloadCompletedTracks(page, paths, saved, observation.tracks, { maxAttempts: 2, timeoutMs: 2_000 }, async (job) => { saved = job; });
+    saved = await downloadCompletedTracks(page, runtime.downloads, outputs, saved, observation.tracks, { maxAttempts: 2, timeoutMs: 2_000 }, async (job) => { saved = job; });
     assert.equal(saved.status, "completed");
     assert.equal(saved.prompt, input.prompt);
     assert.deepEqual(saved.options, { instrumental: false });
@@ -158,21 +159,21 @@ test("real Playwright downloads preserve collisions and record separate outputs"
 });
 
 test("download retries are bounded and never click after an output is recorded", async () => {
-  const { root, paths } = await downloadFixture();
+  const { root, runtime, paths, outputs } = await downloadFixture();
   const page = await pageWith(card("", '<button aria-label="Download" onclick="window.clicks=(window.clicks||0)+1">Download</button>'));
   try {
     const observation = await classifyVisibleCompletion(page, receipt);
     assert.equal(observation.status, "completed");
     if (observation.status !== "completed") throw new Error("Expected completed fixture.");
     let saved = createTrackedJob(input);
-    saved = await downloadCompletedTracks(page, paths, saved, observation.tracks, { maxAttempts: 2, timeoutMs: 20 }, async (job) => { saved = job; });
+    saved = await downloadCompletedTracks(page, runtime.downloads, outputs, saved, observation.tracks, { maxAttempts: 2, timeoutMs: 20 }, async (job) => { saved = job; });
     assert.equal(saved.status, "unknown");
     assert.equal(saved.outputs[0]?.downloadAttempts, 2);
     assert.equal(await page.evaluate(() => (window as typeof window & { clicks?: number }).clicks), 2);
 
     const existing = { ...saved, status: "running" as const, outputs: [{ ...saved.outputs[0]!, outputPath: "outputs/existing.mp3" }] };
     await writeFile(path.join(paths.outputs, "existing.mp3"), "kept");
-    await downloadCompletedTracks(page, paths, existing, observation.tracks, { maxAttempts: 2, timeoutMs: 20 }, async () => undefined);
+    await downloadCompletedTracks(page, runtime.downloads, outputs, existing, observation.tracks, { maxAttempts: 2, timeoutMs: 20 }, async () => undefined);
     assert.equal(await page.evaluate(() => (window as typeof window & { clicks?: number }).clicks), 2);
   } finally {
     await page.close();

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertPathContained, resolveRuntimePaths } from "../src/runtime-paths.js";
+import { assertPathContained, resolveRuntimePaths } from "../src/config.js";
 
 test("uses dedicated descendants of the application runtime root", () => {
   const projectRoot = path.join(os.tmpdir(), "suno-control-project");

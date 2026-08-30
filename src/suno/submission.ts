@@ -1,14 +1,15 @@
 import type { Locator, Page } from "playwright";
-import type { SunoJob } from "./job.js";
-import type { ReceiptItem, SubmissionReceipt } from "./tracking.js";
+import type { SunoJob } from "../domain/job.js";
+import type { ReceiptItem, SubmissionReceipt } from "../domain/job.js";
+import { firstVisible, prepareSunoJob, waitForVisible, type SunoNavigation } from "./preparation.js";
 import {
   challengeLocators,
-  firstVisible,
+  createFormLocators,
   loginLocators,
-  prepareSunoJob,
-  waitForVisible,
-  type SunoNavigation,
-} from "./preparation.js";
+  resultContainers,
+  submissionResultLocators,
+  titleLocators,
+} from "./selectors.js";
 
 export type SubmissionOutcome =
   | { status: "submitted"; receipt?: SubmissionReceipt }
@@ -22,34 +23,17 @@ export interface SubmissionHooks {
   beforeClick(): Promise<void>;
 }
 
-const resultContainers = (page: Page): Locator => page.getByRole("table").getByRole("group");
-
 const waitForResult = async (page: Page, submittedClip: Locator): Promise<string> => {
   const challenge = challengeLocators(page).map((locator) =>
     waitForVisible(locator, "challenge"),
   );
+  const outcomes = submissionResultLocators(page);
   return Promise.any([
     waitForVisible(submittedClip, "submitted"),
-    waitForVisible(page.getByTestId("submission-success"), "submitted"),
-    waitForVisible(
-      page.getByRole("status", { name: /creating|queued|submitted/i }),
-      "submitted",
-    ),
-    waitForVisible(page.getByTestId("validation-error"), "validation-error"),
-    waitForVisible(
-      page.getByRole("alert").filter({ hasText: /required|invalid|too long|validation/i }),
-      "validation-error",
-    ),
-    waitForVisible(page.getByTestId("account-blocked"), "account-blocked"),
-    waitForVisible(
-      page.getByRole("alert").filter({ hasText: /account (?:blocked|disabled|suspended)|access (?:blocked|suspended)/i }),
-      "account-blocked",
-    ),
-    waitForVisible(page.getByTestId("rate-limited"), "rate-limited"),
-    waitForVisible(
-      page.getByRole("alert").filter({ hasText: /rate limit|too many|try again later/i }),
-      "rate-limited",
-    ),
+    ...outcomes.success.map((locator) => waitForVisible(locator, "submitted")),
+    ...outcomes.validation.map((locator) => waitForVisible(locator, "validation-error")),
+    ...outcomes.accountBlocked.map((locator) => waitForVisible(locator, "account-blocked")),
+    ...outcomes.rateLimited.map((locator) => waitForVisible(locator, "rate-limited")),
     ...loginLocators(page).map((locator) => waitForVisible(locator, "login-required")),
     ...challenge,
   ]);
@@ -64,8 +48,7 @@ const submissionReceipt = async (page: Page, firstNewIndex: number): Promise<Sub
     if (!(await container.isVisible())) continue;
     const testId = cleanIdentity(await container.getAttribute("data-testid"));
     const visibleId = cleanIdentity(await container.getAttribute("aria-label"));
-    const heading = container.getByRole("heading").first();
-    const link = container.getByRole("link").first();
+    const { heading, link } = titleLocators(container);
     const title = cleanIdentity(await (await heading.isVisible() ? heading : link).textContent());
     const item = { ...(testId ? { testId } : {}), ...(title ? { title } : {}), ...(visibleId ? { visibleId } : {}) };
     if (testId || title || visibleId) items.push(item);
@@ -95,7 +78,7 @@ export const submitSunoJob = async (
     firstNewIndex = await clips.count();
     submittedClip = clips.nth(firstNewIndex);
     await hooks?.beforeClick();
-    await page.getByRole("button", { name: "Create song", exact: true }).click();
+    await createFormLocators(page).create.click();
   } catch {
     return { status: "changed-ui" };
   }

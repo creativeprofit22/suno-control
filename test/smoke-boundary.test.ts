@@ -33,7 +33,7 @@ test("live smoke dependency path has no submission capability", async () => {
   const relativeFiles = [...sources.keys()].map((file) => path.relative(sourceRoot, file));
   const source = [...sources.values()].join("\n");
 
-  assert.ok(!relativeFiles.includes("submission.ts"), "smoke dependency graph reaches submission.ts");
+  assert.ok(!relativeFiles.some((file) => file.endsWith("submission.ts")), "smoke dependency graph reaches submission.ts");
   assert.doesNotMatch(source, /submitSunoJob|createButton\s*\.click/);
   for (const dependency of sources.values()) assert.doesNotMatch(dependency, /Create song[\s\S]{0,120}\.click\s*\(/);
   assert.match(

@@ -1,9 +1,9 @@
 import { pathToFileURL } from "node:url";
-import { launchSunoBrowser } from "./browser.js";
+import { launchSunoBrowser } from "./suno/browser.js";
 import { waitForChallengeContinue } from "./challenge.js";
-import type { SunoJob } from "./job.js";
-import { resolveRuntimePaths } from "./runtime-paths.js";
-import { runLiveSmoke } from "./smoke.js";
+import type { SunoJob } from "./domain/job.js";
+import { resolveRuntimePaths } from "./config.js";
+import { runLiveSmoke } from "./suno/inspection.js";
 
 const SMOKE_JOB: SunoJob = {
   prompt: "Smoke test only — do not generate",

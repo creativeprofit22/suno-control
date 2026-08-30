@@ -6,8 +6,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("forbidden browser techniques remain absent", async () => {
   const sources = await Promise.all([
-    "src/browser.ts", "src/cli.ts", "src/challenge.ts", "src/preparation.ts",
-    "src/submission.ts", "src/completion.ts", "src/tracking.ts", "src/runtime-paths.ts",
+    "src/suno/browser.ts", "src/suno/preparation.ts", "src/suno/submission.ts",
+    "src/suno/completion.ts", "src/suno/inspection.ts", "src/challenge.ts", "src/config.ts",
+    "src/application/run-jobs.ts", "src/domain/job.ts", "src/persistence/local-job-repository.ts",
   ].map(read)).then((parts) => parts.join("\n"));
   for (const prohibited of [
     /storageState|\.cookies\s*\(|addCookies|connectOverCDP|remote-debugging/i,

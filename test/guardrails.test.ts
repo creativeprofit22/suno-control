@@ -7,7 +7,7 @@ const readSource = (path: string): Promise<string> =>
 
 test("criterion 2: deterministic Playwright actions exclude sleeps and simulated-human input", async () => {
   const source = (
-    await Promise.all([readSource("preparation.ts"), readSource("submission.ts")])
+    await Promise.all([readSource("suno/preparation.ts"), readSource("suno/submission.ts")])
   ).join("\n");
   assert.match(source, /waitFor\(\{ state: "visible", timeout: RESULT_TIMEOUT_MS \}\)/);
   assert.match(source, /Promise\.any/);
@@ -17,7 +17,10 @@ test("criterion 2: deterministic Playwright actions exclude sleeps and simulated
 test("criterion 5: authentication interception, browser-signal changes, and private endpoints are absent", async () => {
   const sourceDirectory = new URL("../../src/", import.meta.url);
   const files = (await readdir(sourceDirectory)).filter((file) => file.endsWith(".ts"));
-  const source = (await Promise.all(files.map((file) => readFile(new URL(file, sourceDirectory), "utf8")))).join("\n");
+  const source = [
+    ...await Promise.all(files.map((file) => readFile(new URL(file, sourceDirectory), "utf8"))),
+    await readSource("suno/browser.ts"),
+  ].join("\n");
 
   for (const prohibited of [
     /storageState|\.cookies\s*\(|addCookies|connectOverCDP|remote-debugging/i,

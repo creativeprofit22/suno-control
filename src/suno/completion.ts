@@ -1,19 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, stat, unlink } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
-import { challengeLocators, firstVisible, loginLocators } from "./preparation.js";
-import { assertPathContained, type JobPaths } from "./runtime-paths.js";
-import {
-  persistExclusiveOutput,
-  safeFilename,
-  transitionJob,
-  type JobStatus,
-  type ReceiptItem,
-  type SubmissionReceipt,
-  type TrackedJob,
-  type TrackedOutput,
-} from "./tracking.js";
+import { firstVisible } from "./preparation.js";
+import { challengeLocators, loginLocators, receiptCandidate, titleLocators, trackStateLocators } from "./selectors.js";
+import type { OutputStore } from "../application/contracts.js";
+import { assertPathContained } from "../config.js";
+import { safeFilename } from "../downloads/local-output-store.js";
+import { transitionJob, type JobStatus, type ReceiptItem, type SubmissionReceipt, type TrackedJob, type TrackedOutput } from "../domain/job.js";
 
 export interface VisibleTrack {
   receipt: ReceiptItem;
@@ -91,16 +85,7 @@ export async function classifyVisibleCompletion(
   for (let index = 0; index < containers.length; index += 1) {
     const container = containers[index]!;
     const item = receipt.items[index]!;
-    const failure = container.getByTestId("generation-failed").or(
-      container.getByRole("alert").filter({ hasText: /failed|error|restricted|rate limit|not enough credits/i }),
-    );
-    const queuedMarker = container.getByRole("status").filter({ hasText: /queued|waiting|pending/i });
-    const runningMarker = container.getByRole("status").filter({ hasText: /creating|generating|running/i }).or(
-      container.getByRole("progressbar"),
-    );
-    const download = container.getByRole("button", { name: /^download(?: audio)?$/i }).or(
-      container.getByRole("link", { name: /^download(?: audio)?$/i }),
-    );
+    const { failure, queued: queuedMarker, running: runningMarker, download } = trackStateLocators(container);
     const states = [
       await failure.first().isVisible(),
       await queuedMarker.first().isVisible(),
@@ -133,18 +118,9 @@ export async function classifyVisibleCompletion(
 }
 
 export async function reacquireReceipt(page: Page, receipt: SubmissionReceipt): Promise<Locator[] | undefined> {
-  const groups = page.getByRole("table").getByRole("group");
   const matches: Locator[] = [];
   for (const item of receipt.items) {
-    let candidate = groups;
-    if (item.testId) candidate = candidate.and(page.getByTestId(item.testId));
-    if (item.visibleId) candidate = candidate.and(page.getByRole("group", { name: item.visibleId, exact: true }));
-    if (item.title) {
-      const title = page.getByRole("heading", { name: item.title, exact: true }).or(
-        page.getByRole("link", { name: item.title, exact: true }),
-      );
-      candidate = candidate.filter({ has: title });
-    }
+    const candidate = receiptCandidate(page, item);
     if (await candidate.count() !== 1 || !(await candidate.isVisible())) return undefined;
     const handle = await candidate.elementHandle();
     if (!handle) return undefined;
@@ -159,7 +135,8 @@ export async function reacquireReceipt(page: Page, receipt: SubmissionReceipt): 
 
 export async function downloadCompletedTracks(
   page: Page,
-  paths: JobPaths,
+  temporaryRoot: string,
+  outputs: OutputStore,
   job: TrackedJob,
   tracks: VisibleTrack[],
   limits: DownloadLimits,
@@ -167,7 +144,7 @@ export async function downloadCompletedTracks(
   now = () => new Date(),
 ): Promise<TrackedJob> {
   let current = job;
-  await mkdir(paths.outputs, { recursive: true, mode: 0o700 });
+  await mkdir(temporaryRoot, { recursive: true, mode: 0o700 });
 
   for (const track of tracks) {
     let output = current.outputs.find((candidate) => candidate.visibleId === track.visibleId) ?? {
@@ -175,14 +152,14 @@ export async function downloadCompletedTracks(
       ...(track.title ? { title: track.title } : {}),
       downloadAttempts: 0,
     };
-    if (await outputExists(paths, output)) continue;
+    if (output.outputPath && await outputs.exists(job.id, output.outputPath)) continue;
 
     let saved = false;
     while (output.downloadAttempts < limits.maxAttempts) {
       output = { ...output, downloadAttempts: output.downloadAttempts + 1 };
       current = replaceOutput(current, output);
       await saveState(current);
-      const temporary = assertPathContained(paths.outputs, path.join(paths.outputs, `.download-${randomUUID()}.tmp`));
+      const temporary = assertPathContained(temporaryRoot, path.join(temporaryRoot, `.download-${randomUUID()}.tmp`));
       try {
         const downloadPromise = page.waitForEvent("download", { timeout: limits.timeoutMs });
         const [clickResult, downloadResult] = await Promise.allSettled([track.download.click(), downloadPromise]);
@@ -193,7 +170,7 @@ export async function downloadCompletedTracks(
         const suggested = safeFilename(download.suggestedFilename());
         const extension = /^\.[a-zA-Z0-9]{1,8}$/.test(path.extname(suggested)) ? path.extname(suggested) : ".mp3";
         const stem = path.parse(safeFilename(track.title ?? track.visibleId)).name || "track";
-        const outputPath = await persistExclusiveOutput(paths, temporary, `${stem}${extension}`);
+        const outputPath = await outputs.persist(job.id, { path: temporary, suggestedName: `${stem}${extension}` });
         output = { ...output, completedAt: now().toISOString(), outputPath };
         current = replaceOutput(current, output);
         await saveState(current);
@@ -223,17 +200,6 @@ export function statusForObservation(observation: CompletionObservation): JobSta
   return observation.status;
 }
 
-async function outputExists(paths: JobPaths, output: TrackedOutput): Promise<boolean> {
-  if (!output.outputPath) return false;
-  const candidate = assertPathContained(paths.outputs, path.resolve(paths.root, output.outputPath));
-  try {
-    return (await stat(candidate)).isFile();
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
-}
-
 function replaceOutput(job: TrackedJob, output: TrackedOutput): TrackedJob {
   const index = job.outputs.findIndex((candidate) => candidate.visibleId === output.visibleId);
   const outputs = index < 0 ? [...job.outputs, output] : job.outputs.map((candidate, current) => current === index ? output : candidate);
@@ -242,8 +208,7 @@ function replaceOutput(job: TrackedJob, output: TrackedOutput): TrackedJob {
 
 async function visibleTitle(container: Locator, item: ReceiptItem): Promise<string | undefined> {
   if (item.title) return item.title;
-  const heading = container.getByRole("heading").first();
-  const link = container.getByRole("link").first();
+  const { heading, link } = titleLocators(container);
   const text = await (await heading.isVisible() ? heading : link).textContent();
   const cleaned = text?.replace(/\s+/g, " ").trim();
   return cleaned ? cleaned.slice(0, 500) : undefined;

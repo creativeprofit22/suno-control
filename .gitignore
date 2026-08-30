@@ -2,7 +2,7 @@ node_modules/
 dist/
 .suno-control/
 browser-profile/
-downloads/
+/downloads/
 logs/
 local-state/
 .env

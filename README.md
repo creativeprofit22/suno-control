@@ -4,7 +4,7 @@ A local Windows CLI that submits bounded Suno job queues through the public, vis
 
 ## Requirements and setup
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - Google Chrome installed
 
 ```sh

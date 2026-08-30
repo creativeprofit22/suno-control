@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
-import { createStructureLocators } from "./preparation.js";
-import { assertPathContained } from "./runtime-paths.js";
+import { assertPathContained } from "../config.js";
+import { classifySunoLocation, createStructureLocators, SELECTOR_KEYS } from "./selectors.js";
+
+export { SELECTOR_KEYS } from "./selectors.js";
 
 export const DIAGNOSTIC_VERSION = 1;
 export const DIAGNOSTIC_STAGES = ["launch", "navigation", "preparation", "submission", "observation", "download", "smoke"] as const;
@@ -11,11 +13,6 @@ export const DIAGNOSTIC_CATEGORIES = [
   "browser-unavailable", "navigation-failed", "login-required", "challenge-required", "validation-rejected",
   "rate-limited", "account-blocked", "changed-ui", "structure-ready", "ambiguous-result", "observation-failed", "download-failed", "unexpected",
 ] as const;
-export const SELECTOR_KEYS = [
-  "advancedTab", "moreOptions", "lyricsPrompt", "stylePrompt", "instrumentalMode", "createButton",
-  "loginMarker", "challengeMarker", "resultContainer", "downloadControl",
-] as const;
-
 export type DiagnosticStage = (typeof DIAGNOSTIC_STAGES)[number];
 export type DiagnosticCategory = (typeof DIAGNOSTIC_CATEGORIES)[number];
 export type SelectorMatrix = Record<(typeof SELECTOR_KEYS)[number], { count: number; visible: boolean }>;
@@ -36,16 +33,10 @@ export async function probeCreateStructure(page: Page): Promise<SelectorMatrix> 
 }
 
 export function classifyLocation(rawUrl: string): RedactedDiagnostic["location"] {
-  try {
-    const url = new URL(rawUrl);
-    if (url.origin !== "https://suno.com") return "external";
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    if (pathname === "/create") return "create";
-    if (/^\/(?:sign-?in|sign-?up|login)(?:\/|$)/i.test(pathname)) return "login";
-    return "suno-other";
-  } catch {
-    return "invalid";
-  }
+  const location = classifySunoLocation(rawUrl);
+  if (location === "suno-create") return "create";
+  if (location === "suno-login") return "login";
+  return location === "unknown" ? "invalid" : location;
 }
 
 export async function createDiagnostic(

@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { chromium, type Browser, type Page } from "playwright";
-import type { SunoJob } from "../src/job.js";
-import { runLiveSmoke } from "../src/smoke.js";
-import { submitSunoJob } from "../src/submission.js";
+import type { SunoJob } from "../src/domain/job.js";
+import { runLiveSmoke } from "../src/suno/inspection.js";
+import { submitSunoJob } from "../src/suno/submission.js";
 
 const LYRICS_PROMPT =
   "What do you want your lyrics to be about? Suno will write new lyrics every generation. Leave this blank for a random topic.";
@@ -188,7 +188,7 @@ test("fills semantic fields, selects the exact model, and submits once", async (
   await page.close();
 });
 
-test("live smoke maps fields and saves artifacts without submitting", async () => {
+test("live smoke inspects controls and saves artifacts without filling or submitting", async () => {
   const { page, navigation } = await fixture();
   const artifacts = await smokeArtifacts();
 
@@ -204,11 +204,12 @@ test("live smoke maps fields and saves artifacts without submitting", async () =
     assert.equal(outcome.status, "ready");
     assert.equal(outcome.challengePaused, false);
     assert.equal(outcome.submitted, false);
+    assert.equal(outcome.creditsConsumed, false);
     assert.equal(outcome.screenshot, artifacts.screenshot);
     assert.equal(outcome.diagnostic.selectors.createButton.visible, true);
     assert.equal(await submitCount(page), 0);
-    assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "A midnight train");
-    assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "ambient");
+    assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "");
+    assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "");
     assert.deepEqual([...await readFile(artifacts.screenshot)].slice(0, 4), [137, 80, 78, 71]);
     assert.deepEqual(JSON.parse(await readFile(artifacts.outcome, "utf8")), outcome.diagnostic);
   } finally {
@@ -237,10 +238,11 @@ test("live smoke challenge continuation never enters the submission path", async
       navigation,
     );
 
-    assert.equal(outcome.status, "ready");
+    assert.equal(outcome.status, "challenge-required");
     assert.equal(outcome.submitted, false);
+    assert.equal(outcome.creditsConsumed, false);
     assert.equal(outcome.challengePaused, true);
-    assert.equal(challengeCalls, 1);
+    assert.equal(challengeCalls, 0);
     assert.equal(await submitCount(page), 0);
   } finally {
     await page.close();

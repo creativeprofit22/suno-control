@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { MAX_MANIFEST_BYTES, parseQueueRequest, parseSunoJob } from "../src/job.js";
+import { MAX_MANIFEST_BYTES, parseQueueRequest, parseSunoJob } from "../src/cli/parse.js";
 
 test("parses a complete Suno job", () => {
   assert.deepEqual(

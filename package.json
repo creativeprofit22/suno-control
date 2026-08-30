@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc",
-    "start": "npm run build && node dist/src/cli.js",
+    "start": "npm run build && node dist/src/main.js",
     "smoke:live": "npm run build && node dist/src/smoke-cli.js",
-    "test": "npm run build --silent && node --test dist/test/*.test.js test/phase-static.test.mjs",
+    "test": "npm run build --silent && node --test test/architecture.test.mjs dist/test/*.test.js test/phase-static.test.mjs",
     "test:queue": "node --test dist/test/queue.test.js",
     "test:limits": "node --test --test-name-pattern=\"explicit concurrency|enforcement stops|retries one|never retries\" dist/test/queue.test.js",
     "test:diagnostics": "node --test dist/test/diagnostics.test.js",
@@ -23,6 +23,12 @@
     "verify:roadmap-3": "node --test dist/test/diagnostics.test.js",
     "verify:roadmap-4": "node --test --test-name-pattern=\"live smoke\" dist/test/submission.test.js dist/test/smoke-boundary.test.js",
     "verify:roadmap-5": "node --test dist/test/readme.test.js",
+    "test:baseline-1": "node --test --test-name-pattern=\"criterion 1 baseline\" test/phase-baseline.test.mjs",
+    "test:baseline-2": "node --test --test-name-pattern=\"criterion 2 fresh live\" test/phase-baseline.test.mjs",
+    "test:baseline-3": "node --test --test-name-pattern=\"criterion 3 architecture modules\" test/phase-baseline.test.mjs",
+    "test:baseline-4": "node --test --test-name-pattern=\"source dependency graph\" test/architecture.test.mjs",
+    "test:baseline-5": "node --test --test-name-pattern=\"architecture guards reject\" test/architecture.test.mjs",
+    "test:baseline-6": "node --test --test-name-pattern=\"criterion 6 architecture document\" test/phase-baseline.test.mjs",
     "test:unit": "npm run verify:roadmap-1",
     "test:integration": "npm run verify:roadmap-2",
     "check": "npm run verify:roadmap-3",

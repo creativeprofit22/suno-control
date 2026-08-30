@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
-import { classifyLocation, createDiagnostic, createUnavailableDiagnostic, mapDiagnosticCategory, writeDiagnostic } from "../src/diagnostics.js";
+import { classifyLocation, createDiagnostic, createUnavailableDiagnostic, mapDiagnosticCategory, writeDiagnostic } from "../src/suno/diagnostics.js";
 
 const controls = `
   <div role="tab">Advanced</div><button>More Options</button>

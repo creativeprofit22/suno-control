@@ -1,9 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { chromium, type BrowserContext, type Page } from "playwright";
-import type { RuntimePaths } from "./runtime-paths.js";
+import { SUNO_CREATE_URL, type RuntimePaths } from "../config.js";
+import { isLoginUrl, loginLocators } from "./selectors.js";
 
-export const SUNO_CREATE_URL = "https://suno.com/create";
-const loginControlName = /^(sign in|sign up|log in|create account)$/i;
+export { SUNO_CREATE_URL } from "../config.js";
 
 export interface SunoBrowser {
   context: BrowserContext;
@@ -44,11 +44,7 @@ export async function openSunoPage(context: BrowserContext, existing?: Page): Pr
 }
 
 export async function isLoginRequired(page: Page): Promise<boolean> {
-  const path = new URL(page.url()).pathname.toLowerCase();
-  if (/\/(?:sign-?in|sign-?up|login)(?:\/|$)/.test(path)) return true;
-
-  const controls = page
-    .getByRole("button", { name: loginControlName })
-    .or(page.getByRole("link", { name: loginControlName }));
-  return controls.first().isVisible();
+  if (isLoginUrl(new URL(page.url()))) return true;
+  for (const locator of loginLocators(page)) if (await locator.first().isVisible()) return true;
+  return false;
 }
