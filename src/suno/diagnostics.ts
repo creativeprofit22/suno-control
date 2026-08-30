@@ -55,8 +55,27 @@ export function createUnavailableDiagnostic(
   category: DiagnosticCategory,
   now = new Date(),
 ): RedactedDiagnostic {
-  const selectors = Object.fromEntries(SELECTOR_KEYS.map((key) => [key, { count: 0, visible: false }])) as SelectorMatrix;
-  return diagnostic(identifier, stage, category, "invalid", selectors, now);
+  return createOutcomeDiagnostic(identifier, stage, category, "unknown", [], now);
+}
+
+export function createOutcomeDiagnostic(
+  identifier: string,
+  stage: DiagnosticStage,
+  category: DiagnosticCategory,
+  location: "suno-create" | "suno-login" | "suno-other" | "external" | "unknown" = "unknown",
+  facts: ReadonlyArray<{ key: string; count: number; visible: boolean }> = [],
+  now = new Date(),
+): RedactedDiagnostic {
+  const byKey = new Map(facts.map((fact) => [fact.key, fact]));
+  const selectors = Object.fromEntries(SELECTOR_KEYS.map((key) => {
+    const fact = byKey.get(key);
+    const count = fact && Number.isSafeInteger(fact.count) ? Math.max(0, Math.min(fact.count, 10_000)) : 0;
+    return [key, { count, visible: count > 0 && fact?.visible === true }];
+  })) as SelectorMatrix;
+  const redactedLocation: RedactedDiagnostic["location"] = location === "suno-create"
+    ? "create"
+    : location === "suno-login" ? "login" : location === "unknown" ? "invalid" : location;
+  return diagnostic(identifier, stage, category, redactedLocation, selectors, now);
 }
 
 function diagnostic(

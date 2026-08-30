@@ -6,6 +6,7 @@ import type { LocalJobRepository } from "../persistence/local-job-repository.js"
 import { launchSunoBrowser, openSunoPage } from "./browser.js";
 import { waitForChallengeContinue } from "../challenge.js";
 import { downloadCompletedTracks, observeCompletion } from "./completion.js";
+import { probeCreateStructure, SELECTOR_KEYS } from "./diagnostics.js";
 import { submitSunoJob, type SubmissionOutcome } from "./submission.js";
 import { classifySunoLocation } from "./selectors.js";
 
@@ -79,24 +80,25 @@ class PlaywrightSunoSession implements SunoSession {
     return page;
   }
 
-  private outcome(
+  private async outcome(
     page: Page,
     status: AutomationOutcome["status"],
     code?: string,
     stage?: AutomationOutcome["stage"],
     outputs?: AutomationOutcome["outputs"],
-  ): AutomationOutcome {
+  ): Promise<AutomationOutcome> {
     return {
       status,
       ...(code ? { code } : {}),
       ...(stage ? { stage } : {}),
       ...(outputs ? { outputs } : {}),
       location: classifySunoLocation(page.url()),
+      facts: await diagnosticFacts(page),
     };
   }
 }
 
-function mapSubmission(outcome: SubmissionOutcome, page: Page): AutomationOutcome {
+async function mapSubmission(outcome: SubmissionOutcome, page: Page): Promise<AutomationOutcome> {
   const status: AutomationOutcome["status"] = outcome.status === "submitted"
     ? "accepted"
     : outcome.status === "validation-error"
@@ -107,5 +109,11 @@ function mapSubmission(outcome: SubmissionOutcome, page: Page): AutomationOutcom
     ...(outcome.status === "submitted" && outcome.receipt ? { receipt: outcome.receipt } : {}),
     stage: "submission",
     location: classifySunoLocation(page.url()),
+    facts: await diagnosticFacts(page),
   };
+}
+
+async function diagnosticFacts(page: Page): Promise<NonNullable<AutomationOutcome["facts"]>> {
+  const selectors = await probeCreateStructure(page);
+  return SELECTOR_KEYS.map((key) => ({ key, ...selectors[key] }));
 }

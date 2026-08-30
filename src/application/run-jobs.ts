@@ -6,7 +6,9 @@ import {
   type SunoJob,
   type TrackedJob,
 } from "../domain/job.js";
+import { resolveJobPaths, type RuntimePaths } from "../config.js";
 import { runQueue, type QueueJobResult, type QueueRunResult } from "../queue.js";
+import { createOutcomeDiagnostic, mapDiagnosticCategory, writeDiagnostic } from "../suno/diagnostics.js";
 import type { AutomationOutcome, JobRepository, SunoAutomation, SunoSession } from "./contracts.js";
 
 export interface RunJobsRequest {
@@ -18,6 +20,7 @@ export interface RunJobsRequest {
 export interface RunJobsDependencies {
   repository: JobRepository;
   automation: SunoAutomation;
+  paths: RuntimePaths;
 }
 
 interface PreparedJob {
@@ -30,8 +33,9 @@ export async function runJobs(
   dependencies: RunJobsDependencies,
   report: (line: string) => void = console.log,
 ): Promise<QueueRunResult> {
-  const { repository, automation } = dependencies;
-  return runQueue(request.jobs, request, {
+  const { repository, automation, paths } = dependencies;
+  const outcomes = new Map<string, AutomationOutcome>();
+  const result = await runQueue(request.jobs, request, {
     prepare: async (input) => {
       const id = jobIdentifier(input);
       const saved = await repository.load(id);
@@ -45,33 +49,63 @@ export async function runJobs(
           message: "Submission may have occurred before confirmation. Inspect the visible browser; this job will not be submitted again.",
         });
         await repository.save(job);
+        outcomes.set(id, { status: "unknown", stage: "submission", code: "submission-unconfirmed", location: "unknown", facts: [] });
         return { id, value: { job, action: "observe" as const }, submissionAttempted: true, terminal: queueResult(10, job) };
       }
       return { id, value: { job, action: action as "submit" | "observe" }, submissionAttempted: Boolean(job.submission.attemptedAt) };
     },
     launch: () => automation.open(),
     open: async (session) => session,
-    run: async (prepared, session) => execute(prepared.value, session, repository),
+    run: async (prepared, session) => execute(prepared.value, session, repository, (outcome) => outcomes.set(prepared.id, outcome)),
     closeHandle: async () => undefined,
     closeSession: (session) => session.close(),
   }, report);
+  await Promise.all(result.results.map(async (jobResult, index) => {
+    if (jobResult.status === "completed") return;
+    try {
+      const identifier = jobIdentifier(request.jobs[index]!);
+      const outcome = outcomes.get(identifier) ?? fallbackOutcome(jobResult);
+      const jobPaths = resolveJobPaths(paths, identifier);
+      const diagnostic = createOutcomeDiagnostic(
+        identifier,
+        outcome.stage ?? "submission",
+        mapDiagnosticCategory(outcome.code ?? "submission-unknown"),
+        outcome.location ?? "unknown",
+        outcome.facts ?? [],
+      );
+      await writeDiagnostic(paths.root, jobPaths.diagnostic, diagnostic);
+    } catch {
+      // Diagnostics are best-effort and must never replace the original job outcome.
+    }
+  }));
+  return result;
 }
 
-async function execute(prepared: PreparedJob, session: SunoSession, repository: JobRepository): Promise<QueueJobResult> {
+async function execute(
+  prepared: PreparedJob,
+  session: SunoSession,
+  repository: JobRepository,
+  captureOutcome: (outcome: AutomationOutcome) => void,
+): Promise<QueueJobResult> {
   let job = prepared.job;
   if (prepared.action === "submit") {
     const submission = await session.submit(job, async () => {
       job = { ...job, submission: { ...job.submission, attemptedAt: new Date().toISOString() } };
       await repository.save(job);
     });
-    if (submission.status !== "accepted" || !submission.receipt) return saveOutcome(job, submission, repository);
+    if (submission.status !== "accepted" || !submission.receipt) {
+      captureOutcome(submission);
+      return saveOutcome(job, submission, repository);
+    }
     job = transitionJob({
       ...job,
       submission: { ...job.submission, confirmedAt: new Date().toISOString(), receipt: submission.receipt },
     }, "running");
     await repository.save(job);
   }
-  return saveOutcome(job, await session.observe(job), repository);
+  const observation = await session.observe(job);
+  captureOutcome(observation);
+  return saveOutcome(job, observation, repository);
 }
 
 async function saveOutcome(job: TrackedJob, outcome: AutomationOutcome, repository: JobRepository): Promise<QueueJobResult> {
@@ -110,4 +144,10 @@ function queueResult(exitCode: number, job: TrackedJob): QueueJobResult {
   if (job.status === "blocked") return { status: "blocked", exitCode, category: job.error?.code === "challenge-required" ? "challenge" : "login", submissionAttempted };
   if (job.status === "failed") return { status: "failed", exitCode, category: "failed", submissionAttempted };
   return { status: "unknown", exitCode: Math.max(exitCode, 10), category: "ambiguous", submissionAttempted };
+}
+
+function fallbackOutcome(result: QueueJobResult): AutomationOutcome {
+  return result.status === "browser-failed"
+    ? { status: "unknown", stage: "launch", code: "browser-launch", location: "unknown", facts: [] }
+    : { status: "unknown", stage: "submission", code: "submission-unknown", location: "unknown", facts: [] };
 }
