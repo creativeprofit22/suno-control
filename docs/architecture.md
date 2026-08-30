@@ -23,7 +23,7 @@ Defines the browser-neutral boundaries:
 - `JobRepository` loads, atomically saves, and reconciles outputs for validated job identifiers.
 - `OutputStore` checks and collision-safely persists outputs beneath a job directory.
 - `SunoAutomation.open()` returns a `SunoSession`.
-- `SunoSession.submit()` requires a checkpoint callback immediately before submission; `observe()` returns semantic outcomes; `close()` releases the session.
+- `SunoSession.submit()` checkpoints immediately before submission; `observe()` checkpoints observation and download progress through application-owned persistence; `close()` releases the session.
 
 Outcomes contain fixed status codes, bounded visible receipt identity, tracked outputs, and redacted facts. They never expose Playwright pages, locators, browser contexts, downloads, raw page text, account data, or session material.
 
@@ -53,7 +53,7 @@ Is the sole owner of Suno role, test-id, CSS, and URL-state locators. Absence is
 
 ### `src/suno/playwright-adapter.ts`
 
-Implements `SunoAutomation` using a visible persistent Chrome context and dedicated profile. The Suno zone owns preparation, one guarded Create click, manual challenge pauses, completion observation, supported Playwright downloads, and redacted diagnostics. It does not inspect cookies, storage, tokens, or network traffic and does not call private APIs.
+Implements `SunoAutomation` using a visible persistent Chrome context and dedicated profile. The Suno zone owns preparation, one guarded Create click, manual challenge pauses, completion observation, supported Playwright downloads, and redacted diagnostics. It reports progress through browser-neutral checkpoints and does not depend on job persistence. It does not inspect cookies, storage, tokens, or network traffic and does not call private APIs.
 
 ### `src/main.ts`
 

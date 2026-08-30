@@ -9,7 +9,7 @@ import {
 import { resolveJobPaths, type RuntimePaths } from "../config.js";
 import { runQueue, type QueueJobResult, type QueueRunResult } from "../queue.js";
 import { createOutcomeDiagnostic, mapDiagnosticCategory, writeDiagnostic } from "../suno/diagnostics.js";
-import type { AutomationOutcome, JobRepository, SunoAutomation, SunoSession } from "./contracts.js";
+import type { AutomationOutcome, JobCheckpoint, JobRepository, SunoAutomation, SunoSession } from "./contracts.js";
 
 export interface RunJobsRequest {
   jobs: SunoJob[];
@@ -103,9 +103,21 @@ async function execute(
     }, "running");
     await repository.save(job);
   }
-  const observation = await session.observe(job);
+  const observation = await session.observe(job, async (checkpoint) => {
+    job = checkpointJob(job, checkpoint);
+    await repository.save(job);
+    return job;
+  });
   captureOutcome(observation);
   return saveOutcome(job, observation, repository);
+}
+
+function checkpointJob(job: TrackedJob, checkpoint: JobCheckpoint): TrackedJob {
+  if (checkpoint.kind === "download") return checkpoint.job;
+  const attempted = { ...job, observationAttempts: Math.max(job.observationAttempts, checkpoint.attempt) };
+  return checkpoint.status === "queued" || checkpoint.status === "running"
+    ? transitionJob(attempted, checkpoint.status)
+    : attempted;
 }
 
 async function saveOutcome(job: TrackedJob, outcome: AutomationOutcome, repository: JobRepository): Promise<QueueJobResult> {

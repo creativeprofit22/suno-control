@@ -30,18 +30,19 @@ This table records only fixed selector keys, bounded counts, route classes, and 
 
 | UI state | Visible route class | Central selector key | Observed state | Inspection date | Confidence |
 | --- | --- | --- | --- | --- | --- |
-| Creation | `create` | `advancedTab`, `moreOptions`, `lyricsPrompt`, `stylePrompt`, `instrumentalMode`, `createButton` | `absent` | 2026-08-30 | High for absence; UI state remains unidentified |
-| Authentication | `create` | `loginMarker` | `absent` | 2026-08-30 | High for absence; authentication state not inferred |
+| Creation | `create` | `advancedTab`, `moreOptions`, `lyricsPrompt`, `stylePrompt`, `createButton` | `visible`, count `1` each | 2026-08-30 | High |
+| Instrumental mode | `create` | `instrumentalMode` | `absent` before non-destructive More Options expansion; current radio label remains `Instrumental` | 2026-08-30 | High |
+| Authentication | `create` | `loginMarker` | `absent` | 2026-08-30 | High for absence; authenticated state confirmed only by visible Create structure |
 | Naturally occurring challenge | `create` | `challengeMarker` | `absent` | 2026-08-30 | High |
-| Generation status | `create` | `resultContainer` | `absent` | 2026-08-30 | High for this page view |
+| Generation status | `create` | `resultContainer` | `visible`, count `20` | 2026-08-30 | High for this page view |
 | Download controls | `create` | `downloadControl` | `absent` | 2026-08-30 | High for this page view |
 
 Inspection safety record:
 
 - `submitted=false`
 - `creditsConsumed=false`
-- The inspection classified the route as `create` and the structure as `changed-ui`; every bounded selector count was zero.
-- No authentication conclusion was inferred from the absent login marker.
+- The inspection classified the route as `create` and the hydrated structure as `structure-ready`.
+- No login or challenge state was inferred beyond the visible markers and route classification.
 - Only navigation, bounded visibility/count probes, screenshots, and non-destructive tabs are permitted.
 - Filling fields, clicking Create, triggering challenges, modifying tracks, and downloading media are forbidden.
 - Screenshots stay ignored under `.suno-control/` because they may contain account details.

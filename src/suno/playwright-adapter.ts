@@ -1,8 +1,7 @@
 import type { BrowserContext, Page } from "playwright";
-import type { AutomationOutcome, OutputStore, SunoAutomation, SunoSession } from "../application/contracts.js";
+import type { AutomationOutcome, JobCheckpoint, OutputStore, SunoAutomation, SunoSession } from "../application/contracts.js";
 import { DEFAULT_DOWNLOAD_LIMITS, DEFAULT_OBSERVATION_LIMITS, type RuntimePaths } from "../config.js";
 import type { SunoJob, TrackedJob } from "../domain/job.js";
-import type { LocalJobRepository } from "../persistence/local-job-repository.js";
 import { launchSunoBrowser, openSunoPage } from "./browser.js";
 import { waitForChallengeContinue } from "../challenge.js";
 import { downloadCompletedTracks, observeCompletion } from "./completion.js";
@@ -13,14 +12,13 @@ import { classifySunoLocation } from "./selectors.js";
 export class PlaywrightSunoAdapter implements SunoAutomation {
   constructor(
     private readonly paths: RuntimePaths,
-    private readonly repository: LocalJobRepository,
     private readonly outputs: OutputStore,
     private readonly challengeContinue: () => Promise<void> = waitForChallengeContinue,
   ) {}
 
   async open(): Promise<SunoSession> {
     const browser = await launchSunoBrowser(this.paths);
-    return new PlaywrightSunoSession(browser.context, browser.page, this.paths, this.repository, this.outputs, this.challengeContinue);
+    return new PlaywrightSunoSession(browser.context, browser.page, this.paths, this.outputs, this.challengeContinue);
   }
 }
 
@@ -31,7 +29,6 @@ class PlaywrightSunoSession implements SunoSession {
     private readonly context: BrowserContext,
     page: Page,
     private readonly paths: RuntimePaths,
-    private readonly repository: LocalJobRepository,
     private readonly outputs: OutputStore,
     private readonly challengeContinue: () => Promise<void>,
   ) {
@@ -44,14 +41,17 @@ class PlaywrightSunoSession implements SunoSession {
     return mapSubmission(outcome, page);
   }
 
-  async observe(job: TrackedJob): Promise<AutomationOutcome> {
+  async observe(job: TrackedJob, checkpoint: (value: JobCheckpoint) => Promise<TrackedJob>): Promise<AutomationOutcome> {
     const page = await this.page();
     if (!job.submission.receipt) return this.outcome(page, "unknown", "missing-submission-receipt", "observation");
+    let current = job;
     const observation = await observeCompletion(
       page,
       job.submission.receipt,
       { ...DEFAULT_OBSERVATION_LIMITS, initialAttempts: job.observationAttempts },
-      async () => undefined,
+      async (result, attempt) => {
+        current = await checkpoint({ kind: "observation", attempt, status: result.status });
+      },
     );
     if (observation.status !== "completed") {
       const status = observation.status === "blocked" ? "challenge-required" : observation.status === "failed" ? "failed" : "unknown";
@@ -62,10 +62,10 @@ class PlaywrightSunoSession implements SunoSession {
       page,
       this.paths.downloads,
       this.outputs,
-      job,
+      current,
       observation.tracks,
       DEFAULT_DOWNLOAD_LIMITS,
-      (updated) => this.repository.save(updated),
+      async (updated) => { current = await checkpoint({ kind: "download", job: updated }); },
     );
     return this.outcome(page, completed.status === "completed" ? "completed" : "unknown", completed.error?.code, "download", completed.outputs);
   }

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AutomationOutcome, JobRepository, SunoAutomation, SunoSession } from "../src/application/contracts.js";
+import type { AutomationOutcome, JobCheckpoint, JobRepository, SunoAutomation, SunoSession } from "../src/application/contracts.js";
 import { runJobs } from "../src/application/run-jobs.js";
 import { resolveJobPaths, resolveRuntimePaths } from "../src/config.js";
 import { jobIdentifier, type SunoJob, type TrackedJob } from "../src/domain/job.js";
@@ -35,7 +35,10 @@ class FakeSession implements SunoSession {
     this.clicks += 1;
     return this.submission;
   }
-  async observe(): Promise<AutomationOutcome> { return this.observation; }
+  async observe(job: TrackedJob, checkpoint: (value: JobCheckpoint) => Promise<TrackedJob>): Promise<AutomationOutcome> {
+    if (this.observation.outputs) await checkpoint({ kind: "download", job: { ...job, outputs: this.observation.outputs } });
+    return this.observation;
+  }
   async close(): Promise<void> {}
 }
 
@@ -53,6 +56,45 @@ test("persists attemptedAt before one submission and completes through contracts
     assert.equal(result.exitCode, 0);
     assert.equal(session.clicks, 1);
     assert.equal(repository.job?.status, "completed");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("persists observation attempts across restarts and exhausts the global limit", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
+  try {
+    const paths = resolveRuntimePaths(root);
+    const repository = new MemoryRepository();
+    repository.job = {
+      version: 1,
+      id: jobIdentifier(input),
+      ...input,
+      status: "running",
+      history: [{ status: "queued", at: new Date().toISOString() }, { status: "running", at: new Date().toISOString() }],
+      submission: { attemptedAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), receipt: { items: [{ visibleId: "track-1" }] } },
+      observationAttempts: 0,
+      outputs: [],
+    };
+    const attempts: number[] = [];
+    const automation = (runLimit: number): SunoAutomation => ({ open: async () => ({
+      async submit() { throw new Error("saved jobs must not be resubmitted"); },
+      async observe(job, checkpoint) {
+        for (let attempt = job.observationAttempts + 1; attempt <= Math.min(3, runLimit); attempt++) {
+          attempts.push(attempt);
+          await checkpoint({ kind: "observation", attempt, status: attempt === 1 ? "queued" : "running" });
+        }
+        return { status: "unknown", stage: "observation", code: "observation-exhausted" };
+      },
+      async close() {},
+    }) });
+
+    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(2), paths }, () => undefined);
+    assert.equal(repository.job?.observationAttempts, 2);
+    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), paths }, () => undefined);
+    assert.equal(repository.job?.observationAttempts, 3);
+    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), paths }, () => undefined);
+    assert.deepEqual(attempts, [1, 2, 3]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

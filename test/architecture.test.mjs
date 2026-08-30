@@ -67,6 +67,9 @@ function assertBoundaries(files, sources) {
     if (["application", "cli"].includes(zone(file))) {
       assert.ok(!dependencies.some((value) => value.includes("playwright-adapter") || value.includes("selectors")), `concrete adapter import from ${relative}`);
     }
+    if (relative === "suno/playwright-adapter.ts") {
+      assert.ok(!dependencies.some((value) => value.includes("persistence/local-job-repository")), "Playwright adapter imports concrete job persistence");
+    }
     if (relative !== "suno/selectors.ts") {
       assert.doesNotMatch(sources.get(file), /\.(?:getByRole|getByTestId|locator)\s*\(/, `Suno locator constructed outside selectors.ts: ${relative}`);
     }

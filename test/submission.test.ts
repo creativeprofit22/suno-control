@@ -188,8 +188,8 @@ test("fills semantic fields, selects the exact model, and submits once", async (
   await page.close();
 });
 
-test("live smoke inspects controls and saves artifacts without filling or submitting", async () => {
-  const { page, navigation } = await fixture();
+test("live smoke waits for hydrated controls and saves artifacts without filling or submitting", async () => {
+  const { page, navigation } = await fixture("success", "<script>document.querySelector('main').innerHTML=''; setTimeout(() => window.renderForm(), 100)</script>");
   const artifacts = await smokeArtifacts();
 
   try {

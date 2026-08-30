@@ -33,7 +33,11 @@ export async function runLiveSmoke(
 ): Promise<LiveSmokeOutcome> {
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   await page.goto(navigation.createUrl, { waitUntil: "domcontentloaded", timeout: ACTION_TIMEOUT_MS });
-  const url = new URL(page.url());
+  let url = new URL(page.url());
+  if (url.origin === navigation.expectedOrigin && !isLoginUrl(url)) {
+    await waitForVisible([...loginLocators(page), ...challengeLocators(page), createFormLocators(page).advanced]);
+    url = new URL(page.url());
+  }
   const loginVisible = isLoginUrl(url) || await anyVisible(loginLocators(page));
   const challengeVisible = await anyVisible(challengeLocators(page));
   const readyVisible = await createFormLocators(page).advanced.first().isVisible();
@@ -58,6 +62,10 @@ export async function runLiveSmoke(
   await page.screenshot({ path: artifacts.screenshot });
   await writeDiagnostic(artifacts.root, artifacts.outcome, diagnostic);
   return outcome;
+}
+
+async function waitForVisible(locators: ReturnType<typeof loginLocators>): Promise<void> {
+  await Promise.any(locators.map((locator) => locator.first().waitFor({ state: "visible" }))).catch(() => undefined);
 }
 
 async function anyVisible(locators: ReturnType<typeof loginLocators>): Promise<boolean> {

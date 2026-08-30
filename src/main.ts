@@ -9,7 +9,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   const paths = resolveRuntimePaths(process.cwd());
   const repository = new LocalJobRepository(paths);
   const outputs = new LocalOutputStore(paths);
-  const automation = new PlaywrightSunoAdapter(paths, repository, outputs);
+  const automation = new PlaywrightSunoAdapter(paths, outputs);
   return runCli(args, { repository, automation, paths });
 }
 

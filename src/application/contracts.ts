@@ -45,9 +45,13 @@ export interface AutomationOutcome {
   facts?: DiagnosticFact[];
 }
 
+export type JobCheckpoint =
+  | { kind: "observation"; attempt: number; status: "queued" | "running" | "completed" | "failed" | "blocked" | "unknown" }
+  | { kind: "download"; job: TrackedJob };
+
 export interface SunoSession {
   submit(job: SunoJob, checkpoint: () => Promise<void>): Promise<AutomationOutcome>;
-  observe(job: TrackedJob): Promise<AutomationOutcome>;
+  observe(job: TrackedJob, checkpoint: (value: JobCheckpoint) => Promise<TrackedJob>): Promise<AutomationOutcome>;
   close(): Promise<void>;
 }
 
