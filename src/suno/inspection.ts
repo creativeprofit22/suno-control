@@ -2,7 +2,6 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import { ACTION_TIMEOUT_MS, SUNO_CREATE_URL, SUNO_ORIGIN } from "../config.js";
-import type { SunoJob } from "../domain/job.js";
 import { createDiagnostic, writeDiagnostic, type RedactedDiagnostic } from "./diagnostics.js";
 import { challengeLocators, createFormLocators, isLoginUrl, loginLocators } from "./selectors.js";
 
@@ -26,33 +25,28 @@ const defaults: InspectionNavigation = { createUrl: SUNO_CREATE_URL, expectedOri
 
 export async function runLiveSmoke(
   page: Page,
-  _job: SunoJob,
-  _waitForChallengeContinue: () => Promise<void>,
+  waitForChallengeContinue: () => Promise<void>,
   artifacts: SmokeArtifacts,
   navigation: InspectionNavigation = defaults,
 ): Promise<LiveSmokeOutcome> {
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   await page.goto(navigation.createUrl, { waitUntil: "domcontentloaded", timeout: ACTION_TIMEOUT_MS });
-  let url = new URL(page.url());
+  const url = new URL(page.url());
   if (url.origin === navigation.expectedOrigin && !isLoginUrl(url)) {
     await waitForVisible([...loginLocators(page), ...challengeLocators(page), createFormLocators(page).advanced]);
-    url = new URL(page.url());
   }
-  const loginVisible = isLoginUrl(url) || await anyVisible(loginLocators(page));
-  const challengeVisible = await anyVisible(challengeLocators(page));
-  const readyVisible = await createFormLocators(page).advanced.first().isVisible();
-  const status = url.origin !== navigation.expectedOrigin
-    ? "changed-ui"
-    : loginVisible
-      ? "login-required"
-      : challengeVisible
-        ? "challenge-required"
-        : readyVisible ? "ready" : "changed-ui";
+  let status = await classifyState(page, navigation.expectedOrigin);
+  let challengePaused = false;
+  if (status === "challenge-required") {
+    await waitForChallengeContinue();
+    challengePaused = true;
+    status = await classifyState(page, navigation.expectedOrigin);
+  }
   const category = status === "ready" ? "structure-ready" : status;
   const diagnostic = await createDiagnostic(page, "smoke", "smoke", category);
   const outcome: LiveSmokeOutcome = {
     status,
-    challengePaused: challengeVisible,
+    challengePaused,
     submitted: false,
     creditsConsumed: false,
     screenshot: artifacts.screenshot,
@@ -62,6 +56,14 @@ export async function runLiveSmoke(
   await page.screenshot({ path: artifacts.screenshot });
   await writeDiagnostic(artifacts.root, artifacts.outcome, diagnostic);
   return outcome;
+}
+
+async function classifyState(page: Page, expectedOrigin: string): Promise<LiveSmokeOutcome["status"]> {
+  const url = new URL(page.url());
+  if (url.origin !== expectedOrigin) return "changed-ui";
+  if (isLoginUrl(url) || await anyVisible(loginLocators(page))) return "login-required";
+  if (await anyVisible(challengeLocators(page))) return "challenge-required";
+  return await createFormLocators(page).advanced.first().isVisible() ? "ready" : "changed-ui";
 }
 
 async function waitForVisible(locators: ReturnType<typeof loginLocators>): Promise<void> {

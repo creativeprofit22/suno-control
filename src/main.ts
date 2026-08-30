@@ -3,6 +3,7 @@ import { runCli } from "./cli/presentation.js";
 import { resolveRuntimePaths } from "./config.js";
 import { LocalOutputStore } from "./downloads/local-output-store.js";
 import { LocalJobRepository } from "./persistence/local-job-repository.js";
+import { createOutcomeDiagnosticWriter } from "./suno/diagnostics.js";
 import { PlaywrightSunoAdapter } from "./suno/playwright-adapter.js";
 
 export async function main(args: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -10,7 +11,8 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   const repository = new LocalJobRepository(paths);
   const outputs = new LocalOutputStore(paths);
   const automation = new PlaywrightSunoAdapter(paths, outputs);
-  return runCli(args, { repository, automation, paths });
+  const diagnosticWriter = createOutcomeDiagnosticWriter(paths);
+  return runCli(args, { repository, automation, diagnosticWriter });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

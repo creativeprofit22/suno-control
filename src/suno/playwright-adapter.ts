@@ -54,7 +54,7 @@ class PlaywrightSunoSession implements SunoSession {
       },
     );
     if (observation.status !== "completed") {
-      const status = observation.status === "blocked" ? "challenge-required" : observation.status === "failed" ? "failed" : "unknown";
+      const status = observation.status === "blocked" ? observation.error.code : observation.status === "failed" ? "failed" : "unknown";
       const code = "error" in observation ? observation.error.code : "observation-exhausted";
       return this.outcome(page, status, code, "observation");
     }

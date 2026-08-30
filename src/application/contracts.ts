@@ -45,6 +45,10 @@ export interface AutomationOutcome {
   facts?: DiagnosticFact[];
 }
 
+export interface OutcomeDiagnosticWriter {
+  write(identifier: string, outcome: AutomationOutcome): Promise<void>;
+}
+
 export type JobCheckpoint =
   | { kind: "observation"; attempt: number; status: "queued" | "running" | "completed" | "failed" | "blocked" | "unknown" }
   | { kind: "download"; job: TrackedJob };

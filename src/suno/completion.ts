@@ -20,7 +20,8 @@ export interface VisibleTrack {
 export type CompletionObservation =
   | { status: "queued" | "running" }
   | { status: "completed"; tracks: VisibleTrack[] }
-  | { status: "failed" | "blocked" | "unknown"; error: { code: string; message: string } };
+  | { status: "failed" | "unknown"; error: { code: string; message: string } }
+  | { status: "blocked"; error: { code: "login-required" | "challenge-required"; message: string } };
 
 export interface DownloadLimits {
   maxAttempts: number;
@@ -214,7 +215,7 @@ async function visibleTitle(container: Locator, item: ReceiptItem): Promise<stri
   return cleaned ? cleaned.slice(0, 500) : undefined;
 }
 
-function blocked(code: string, message: string): CompletionObservation {
+function blocked(code: "login-required" | "challenge-required", message: string): CompletionObservation {
   return { status: "blocked", error: { code, message } };
 }
 

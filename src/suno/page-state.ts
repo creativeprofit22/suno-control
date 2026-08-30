@@ -37,6 +37,9 @@ const waitForEntryVisible = async (locator: Locator, status: string): Promise<st
   await locator.first().waitFor({ state: "visible", timeout: ACTION_TIMEOUT_MS });
   return status;
 };
+const ENTRY_POLL_INTERVAL_MS = 100;
+const ENTRY_POLL_TIMEOUT_MS = 2_000;
+const REQUIRED_STABLE_SAMPLES = 2;
 
 export const classifyCreatePageEntry = async (
   page: Page,
@@ -54,7 +57,7 @@ export const classifyCreatePageEntry = async (
       waitForEntryVisible(advanced, "ready"),
     ]) as Exclude<CreatePageEntryState, "changed-ui">;
   } catch {
-    return "changed-ui";
+    return stableEntryState(page, expectedUrl, expectedOrigin, login, challenge, advanced);
   }
   if (firstState === "ready") {
     await Promise.any([
@@ -62,6 +65,46 @@ export const classifyCreatePageEntry = async (
       ...challenge.map((locator) => waitForVisible(locator, "challenge")),
     ]).catch(() => undefined);
   }
+  return stableEntryState(page, expectedUrl, expectedOrigin, login, challenge, advanced);
+};
+
+async function stableEntryState(
+  page: Page,
+  expectedUrl: URL,
+  expectedOrigin: string,
+  login: Locator[],
+  challenge: Locator[],
+  advanced: Locator,
+): Promise<CreatePageEntryState> {
+  const deadline = Date.now() + ENTRY_POLL_TIMEOUT_MS;
+  let previous: CreatePageEntryState | undefined;
+  let stableSamples = 0;
+
+  while (Date.now() <= deadline) {
+    const state = await visibleEntryState(page, expectedUrl, expectedOrigin, login, challenge, advanced);
+    if (state === "changed-ui") {
+      previous = undefined;
+      stableSamples = 0;
+      if (new URL(page.url()).origin !== expectedOrigin) return state;
+    } else {
+      stableSamples = state === previous ? stableSamples + 1 : 1;
+      previous = state;
+      if (stableSamples >= REQUIRED_STABLE_SAMPLES) return state;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(ENTRY_POLL_INTERVAL_MS, remaining)));
+  }
+  return "changed-ui";
+}
+
+async function visibleEntryState(
+  page: Page,
+  expectedUrl: URL,
+  expectedOrigin: string,
+  login: Locator[],
+  challenge: Locator[],
+  advanced: Locator,
+): Promise<CreatePageEntryState> {
   const url = new URL(page.url());
   const loginVisible = isLoginUrl(url) || await firstVisible(login);
   const challengeVisible = await firstVisible(challenge);
@@ -70,7 +113,7 @@ export const classifyCreatePageEntry = async (
   if (loginVisible) return "login-required";
   if (challengeVisible) return "challenge";
   return readyVisible ? "ready" : "changed-ui";
-};
+}
 
 export const isLoginUrl = (url: URL): boolean => /\/(?:sign-?in|sign-?up|login)(?:\/|$)/.test(url.pathname.toLowerCase());
 

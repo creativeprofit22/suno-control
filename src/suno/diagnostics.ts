@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
-import { assertPathContained } from "../config.js";
+import type { OutcomeDiagnosticWriter } from "../application/contracts.js";
+import { assertPathContained, resolveJobPaths, type RuntimePaths } from "../config.js";
 import { classifySunoLocation, createStructureLocators, SELECTOR_KEYS } from "./selectors.js";
 
 export { SELECTOR_KEYS } from "./selectors.js";
@@ -108,6 +109,22 @@ export async function writeDiagnostic(runtimeRoot: string, destination: string, 
     await unlink(temporary).catch(() => undefined);
     throw error;
   }
+}
+
+export function createOutcomeDiagnosticWriter(paths: RuntimePaths): OutcomeDiagnosticWriter {
+  return {
+    write: async (identifier, outcome) => {
+      const jobPaths = resolveJobPaths(paths, identifier);
+      const diagnostic = createOutcomeDiagnostic(
+        identifier,
+        outcome.stage ?? "submission",
+        mapDiagnosticCategory(outcome.code ?? "submission-unknown"),
+        outcome.location ?? "unknown",
+        outcome.facts ?? [],
+      );
+      await writeDiagnostic(paths.root, jobPaths.diagnostic, diagnostic);
+    },
+  };
 }
 
 export function mapDiagnosticCategory(code: string): DiagnosticCategory {

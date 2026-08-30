@@ -67,6 +67,9 @@ function assertBoundaries(files, sources) {
     if (["application", "cli"].includes(zone(file))) {
       assert.ok(!dependencies.some((value) => value.includes("playwright-adapter") || value.includes("selectors")), `concrete adapter import from ${relative}`);
     }
+    if (zone(file) === "application") {
+      assert.ok(!dependencies.some((value) => value === "../config.js" || value.startsWith("../suno/")), `runtime adapter import from ${relative}`);
+    }
     if (relative === "suno/playwright-adapter.ts") {
       assert.ok(!dependencies.some((value) => value.includes("persistence/local-job-repository")), "Playwright adapter imports concrete job persistence");
     }
@@ -85,9 +88,12 @@ await test("source dependency graph is acyclic and obeys zone boundaries", async
 await test("architecture guards reject synthetic cycles and forbidden imports", () => {
   const first = path.join(sourceRoot, "domain", "first.ts");
   const second = path.join(sourceRoot, "domain", "second.ts");
+  const application = path.join(sourceRoot, "application", "first.ts");
   assert.throws(() => assertAcyclic(new Map([[first, [second]], [second, [first]]])), /circular dependency/);
   assert.throws(() => assertBoundaries([first], new Map([[first, 'import { chromium } from "playwright";']])), /Playwright import outside/);
   assert.throws(() => assertBoundaries([first], new Map([[first, 'page.getByRole("button")']])), /locator constructed outside/);
+  assert.throws(() => assertBoundaries([application], new Map([[application, 'import "../config.js";']])), /runtime adapter import/);
+  assert.throws(() => assertBoundaries([application], new Map([[application, 'import "../suno/diagnostics.js";']])), /runtime adapter import/);
 });
 
 await test("non-submitting inspection cannot reach submission capability", async () => {

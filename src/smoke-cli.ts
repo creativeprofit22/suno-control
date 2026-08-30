@@ -1,14 +1,8 @@
 import { pathToFileURL } from "node:url";
 import { launchSunoBrowser } from "./suno/browser.js";
 import { waitForChallengeContinue } from "./challenge.js";
-import type { SunoJob } from "./domain/job.js";
 import { resolveRuntimePaths } from "./config.js";
 import { runLiveSmoke } from "./suno/inspection.js";
-
-const SMOKE_JOB: SunoJob = {
-  prompt: "Smoke test only — do not generate",
-  options: { instrumental: false, style: "ambient", model: "v5" },
-};
 
 async function main(): Promise<number> {
   const paths = resolveRuntimePaths(process.cwd());
@@ -24,7 +18,6 @@ async function main(): Promise<number> {
   try {
     const outcome = await runLiveSmoke(
       browser.page,
-      SMOKE_JOB,
       waitForChallengeContinue,
       { root: paths.root, screenshot: paths.smokeScreenshot, outcome: paths.smokeOutcome },
     );

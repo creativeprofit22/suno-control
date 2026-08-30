@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AutomationOutcome, JobCheckpoint, JobRepository, SunoAutomation, SunoSession } from "../src/application/contracts.js";
+import type { AutomationOutcome, JobCheckpoint, JobRepository, OutcomeDiagnosticWriter, SunoAutomation, SunoSession } from "../src/application/contracts.js";
 import { runJobs } from "../src/application/run-jobs.js";
 import { resolveJobPaths, resolveRuntimePaths } from "../src/config.js";
 import { jobIdentifier, type SunoJob, type TrackedJob } from "../src/domain/job.js";
-import type { RedactedDiagnostic } from "../src/suno/diagnostics.js";
+import { createOutcomeDiagnosticWriter, type RedactedDiagnostic } from "../src/suno/diagnostics.js";
 
 const input: SunoJob = { prompt: "private prompt", options: { instrumental: false } };
+const noOpDiagnosticWriter: OutcomeDiagnosticWriter = { write: async () => undefined };
 
 class MemoryRepository implements JobRepository {
   job?: TrackedJob;
@@ -42,79 +43,83 @@ class FakeSession implements SunoSession {
   async close(): Promise<void> {}
 }
 
-test("criterion 4 persists attemptedAt before one submission and completes through contracts", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
-  try {
+for (const scenario of [
+  { status: "login-required", exitCode: 3, resultStatus: "login-required", category: "login" },
+  { status: "challenge-required", exitCode: 9, resultStatus: "blocked", category: "challenge" },
+] as const) {
+  test(`${scenario.status} preserves its application exit, category, and code`, async () => {
     const repository = new MemoryRepository();
-    const session = new FakeSession(repository, { status: "accepted", receipt: { items: [{ visibleId: "track-1" }] } });
-    const automation: SunoAutomation = { open: async () => session };
+    const outcome: AutomationOutcome = { status: scenario.status, stage: "observation", code: scenario.status, location: "suno-create", facts: [] };
+    const session = new FakeSession(repository, outcome);
     const result = await runJobs(
       { jobs: [input], concurrency: 1, retries: 0 },
-      { repository, automation, paths: resolveRuntimePaths(root) },
+      { repository, automation: { open: async () => session }, diagnosticWriter: noOpDiagnosticWriter },
       () => undefined,
     );
-    assert.equal(result.exitCode, 0);
-    assert.equal(session.clicks, 1);
-    assert.equal(repository.job?.status, "completed");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+
+    assert.equal(result.exitCode, scenario.exitCode);
+    assert.equal(result.results[0]?.status, scenario.resultStatus);
+    assert.equal(result.results[0]?.category, scenario.category);
+    assert.equal(repository.job?.error?.code, scenario.status);
+  });
+}
+
+test("criterion 4 persists attemptedAt before one submission and completes through contracts", async () => {
+  const repository = new MemoryRepository();
+  const session = new FakeSession(repository, { status: "accepted", receipt: { items: [{ visibleId: "track-1" }] } });
+  const automation: SunoAutomation = { open: async () => session };
+  const result = await runJobs(
+    { jobs: [input], concurrency: 1, retries: 0 },
+    { repository, automation, diagnosticWriter: noOpDiagnosticWriter },
+    () => undefined,
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(session.clicks, 1);
+  assert.equal(repository.job?.status, "completed");
 });
 
 test("criterion 5 persists observation attempts across restarts and exhausts the global limit", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
-  try {
-    const paths = resolveRuntimePaths(root);
-    const repository = new MemoryRepository();
-    repository.job = {
-      version: 1,
-      id: jobIdentifier(input),
-      ...input,
-      status: "running",
-      history: [{ status: "queued", at: new Date().toISOString() }, { status: "running", at: new Date().toISOString() }],
-      submission: { attemptedAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), receipt: { items: [{ visibleId: "track-1" }] } },
-      observationAttempts: 0,
-      outputs: [],
-    };
-    const attempts: number[] = [];
-    const automation = (runLimit: number): SunoAutomation => ({ open: async () => ({
-      async submit() { throw new Error("saved jobs must not be resubmitted"); },
-      async observe(job, checkpoint) {
-        for (let attempt = job.observationAttempts + 1; attempt <= Math.min(3, runLimit); attempt++) {
-          attempts.push(attempt);
-          await checkpoint({ kind: "observation", attempt, status: attempt === 1 ? "queued" : "running" });
-        }
-        return { status: "unknown", stage: "observation", code: "observation-exhausted" };
-      },
-      async close() {},
-    }) });
+  const repository = new MemoryRepository();
+  repository.job = {
+    version: 1,
+    id: jobIdentifier(input),
+    ...input,
+    status: "running",
+    history: [{ status: "queued", at: new Date().toISOString() }, { status: "running", at: new Date().toISOString() }],
+    submission: { attemptedAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), receipt: { items: [{ visibleId: "track-1" }] } },
+    observationAttempts: 0,
+    outputs: [],
+  };
+  const attempts: number[] = [];
+  const automation = (runLimit: number): SunoAutomation => ({ open: async () => ({
+    async submit() { throw new Error("saved jobs must not be resubmitted"); },
+    async observe(job, checkpoint) {
+      for (let attempt = job.observationAttempts + 1; attempt <= Math.min(3, runLimit); attempt++) {
+        attempts.push(attempt);
+        await checkpoint({ kind: "observation", attempt, status: attempt === 1 ? "queued" : "running" });
+      }
+      return { status: "unknown", stage: "observation", code: "observation-exhausted" };
+    },
+    async close() {},
+  }) });
 
-    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(2), paths }, () => undefined);
-    assert.equal(repository.job?.observationAttempts, 2);
-    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), paths }, () => undefined);
-    assert.equal(repository.job?.observationAttempts, 3);
-    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), paths }, () => undefined);
-    assert.deepEqual(attempts, [1, 2, 3]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(2), diagnosticWriter: noOpDiagnosticWriter }, () => undefined);
+  assert.equal(repository.job?.observationAttempts, 2);
+  await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), diagnosticWriter: noOpDiagnosticWriter }, () => undefined);
+  assert.equal(repository.job?.observationAttempts, 3);
+  await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: automation(3), diagnosticWriter: noOpDiagnosticWriter }, () => undefined);
+  assert.deepEqual(attempts, [1, 2, 3]);
 });
 
 test("criterion 5 never resubmits an ambiguous saved attempt", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
-  try {
-    const paths = resolveRuntimePaths(root);
-    const repository = new MemoryRepository();
-    const first = new FakeSession(repository, { status: "unknown" });
-    await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => first }, paths }, () => undefined);
-    assert.equal(first.clicks, 1);
-    const second = new FakeSession(repository, { status: "accepted", receipt: { items: [{ visibleId: "track-1" }] } });
-    const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => second }, paths }, () => undefined);
-    assert.equal(result.exitCode, 10);
-    assert.equal(second.clicks, 0);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  const repository = new MemoryRepository();
+  const first = new FakeSession(repository, { status: "unknown" });
+  await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => first }, diagnosticWriter: noOpDiagnosticWriter }, () => undefined);
+  assert.equal(first.clicks, 1);
+  const second = new FakeSession(repository, { status: "accepted", receipt: { items: [{ visibleId: "track-1" }] } });
+  const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => second }, diagnosticWriter: noOpDiagnosticWriter }, () => undefined);
+  assert.equal(result.exitCode, 10);
+  assert.equal(second.clicks, 0);
 });
 
 for (const scenario of [
@@ -151,7 +156,7 @@ for (const scenario of [
       const paths = resolveRuntimePaths(root);
       const repository = new MemoryRepository();
       const session = new FakeSession(repository, scenario.submission, scenario.observation);
-      const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => session }, paths }, () => undefined);
+      const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => session }, diagnosticWriter: createOutcomeDiagnosticWriter(paths) }, () => undefined);
       assert.notEqual(result.exitCode, 0);
       const serialized = await readFile(resolveJobPaths(paths, jobIdentifier(input)).diagnostic, "utf8");
       const diagnostic = JSON.parse(serialized);
@@ -173,7 +178,7 @@ test("browser launch failure writes a fixed unavailable diagnostic", async () =>
     const repository = new MemoryRepository();
     const result = await runJobs(
       { jobs: [input], concurrency: 1, retries: 0 },
-      { repository, automation: { open: async () => { throw new Error("private browser exception"); } }, paths },
+      { repository, automation: { open: async () => { throw new Error("private browser exception"); } }, diagnosticWriter: createOutcomeDiagnosticWriter(paths) },
       () => undefined,
     );
     assert.equal(result.results[0]?.status, "browser-failed");
@@ -188,18 +193,12 @@ test("browser launch failure writes a fixed unavailable diagnostic", async () =>
 });
 
 test("diagnostic writer failure preserves the original result", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "suno-run-jobs-"));
-  try {
-    const paths = resolveRuntimePaths(root);
-    await writeFile(paths.root, "not a directory");
-    const repository = new MemoryRepository();
-    const outcome: AutomationOutcome = { status: "validation-rejected", stage: "submission", code: "validation-error", location: "suno-create", facts: [] };
-    const session = new FakeSession(repository, outcome);
-    const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => session }, paths }, () => undefined);
-    assert.equal(result.exitCode, 5);
-    assert.equal(result.results[0]?.status, "validation-rejected");
-    assert.equal(repository.job?.error?.code, "validation-error");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  const repository = new MemoryRepository();
+  const outcome: AutomationOutcome = { status: "validation-rejected", stage: "submission", code: "validation-error", location: "suno-create", facts: [] };
+  const session = new FakeSession(repository, outcome);
+  const diagnosticWriter: OutcomeDiagnosticWriter = { write: async () => { throw new Error("diagnostic unavailable"); } };
+  const result = await runJobs({ jobs: [input], concurrency: 1, retries: 0 }, { repository, automation: { open: async () => session }, diagnosticWriter }, () => undefined);
+  assert.equal(result.exitCode, 5);
+  assert.equal(result.results[0]?.status, "validation-rejected");
+  assert.equal(repository.job?.error?.code, "validation-error");
 });

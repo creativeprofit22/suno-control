@@ -69,16 +69,23 @@ test("criterion 1 completion tracking observes queued to running to completed wi
   }
 });
 
-test("criterion 1 completion tracking classifies explicit failed, blocked, and contradictory states", async () => {
+test("criterion 1 completion tracking keeps login and challenge blocks distinct", async () => {
   const failedPage = await pageWith(card('<div role="alert">Generation failed</div>'));
-  const blockedPage = await pageWith('<div data-testid="interactive-challenge">Challenge</div>');
+  const loginPage = await pageWith('<button aria-label="Sign in">Sign in</button>');
+  const challengePage = await pageWith('<div data-testid="interactive-challenge">Challenge</div>');
   const ambiguousPage = await pageWith(card('<div role="status">Queued</div><button aria-label="Download">Download</button>'));
   try {
     assert.equal((await classifyVisibleCompletion(failedPage, receipt)).status, "failed");
-    assert.equal((await classifyVisibleCompletion(blockedPage, receipt)).status, "blocked");
+    const login = await classifyVisibleCompletion(loginPage, receipt);
+    const challenge = await classifyVisibleCompletion(challengePage, receipt);
+    assert.equal(login.status, "blocked");
+    assert.equal(challenge.status, "blocked");
+    if (login.status !== "blocked" || challenge.status !== "blocked") throw new Error("Expected blocked fixtures.");
+    assert.equal(login.error.code, "login-required");
+    assert.equal(challenge.error.code, "challenge-required");
     assert.equal((await classifyVisibleCompletion(ambiguousPage, receipt)).status, "unknown");
   } finally {
-    await Promise.all([failedPage.close(), blockedPage.close(), ambiguousPage.close()]);
+    await Promise.all([failedPage.close(), loginPage.close(), challengePage.close(), ambiguousPage.close()]);
   }
 });
 

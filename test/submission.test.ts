@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { chromium, type Browser, type Page } from "playwright";
+import { RESULT_TIMEOUT_MS } from "../src/config.js";
 import type { SunoJob } from "../src/domain/job.js";
 import { runLiveSmoke } from "../src/suno/inspection.js";
 import { submitSunoJob } from "../src/suno/submission.js";
@@ -26,6 +27,7 @@ type Mode =
   | "delayed-login"
   | "delayed-challenge"
   | "ready-then-delayed-login"
+  | "ready-then-late-login"
   | "ready-then-delayed-challenge"
   | "ambiguous";
 type Navigation = Readonly<{ createUrl: string; expectedOrigin: string }>;
@@ -43,7 +45,8 @@ const html = (mode: Mode, extra = ""): string => `<!doctype html>
   <body data-mode="${
     mode === "initial-challenge" ||
     mode === "delayed-challenge" ||
-    mode === "ready-then-delayed-challenge"
+    mode === "ready-then-delayed-challenge" ||
+    mode === "ready-then-late-login"
       ? "success"
       : mode
   }">
@@ -80,6 +83,8 @@ const html = (mode: Mode, extra = ""): string => `<!doctype html>
         window.renderForm();
         if ('${mode}' === 'ready-then-delayed-login') {
           setTimeout(() => document.querySelector('main').innerHTML = '<button aria-label="Sign in">Sign in</button>', 100);
+        } else if ('${mode}' === 'ready-then-late-login') {
+          setTimeout(() => document.querySelector('main').innerHTML = '<button aria-label="Sign in">Sign in</button>', ${RESULT_TIMEOUT_MS + 100});
         } else if ('${mode}' === 'ready-then-delayed-challenge') {
           setTimeout(() => document.querySelector('[data-testid=interactive-challenge]').hidden = false, 100);
         }
@@ -195,7 +200,6 @@ test("live smoke waits for hydrated controls and saves artifacts without filling
   try {
     const outcome = await runLiveSmoke(
       page,
-      job({ style: "ambient", model: "v5" }),
       async () => undefined,
       artifacts,
       navigation,
@@ -226,7 +230,6 @@ test("live smoke challenge continuation never enters the submission path", async
   try {
     const outcome = await runLiveSmoke(
       page,
-      job(),
       async () => {
         challengeCalls++;
         await page.getByTestId("interactive-challenge").evaluate((element) => {
@@ -238,11 +241,35 @@ test("live smoke challenge continuation never enters the submission path", async
       navigation,
     );
 
-    assert.equal(outcome.status, "challenge-required");
+    assert.equal(outcome.status, "ready");
     assert.equal(outcome.submitted, false);
     assert.equal(outcome.creditsConsumed, false);
     assert.equal(outcome.challengePaused, true);
-    assert.equal(challengeCalls, 0);
+    assert.equal(challengeCalls, 1);
+    assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "");
+    assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "");
+    assert.equal(await submitCount(page), 0);
+  } finally {
+    await page.close();
+    await rm(artifacts.root, { recursive: true, force: true });
+  }
+});
+
+test("live smoke stays blocked when the challenge remains after continuation", async () => {
+  const { page, navigation } = await fixture("initial-challenge");
+  const artifacts = await smokeArtifacts();
+  let challengeCalls = 0;
+
+  try {
+    const outcome = await runLiveSmoke(page, async () => { challengeCalls++; }, artifacts, navigation);
+
+    assert.equal(outcome.status, "challenge-required");
+    assert.equal(outcome.challengePaused, true);
+    assert.equal(challengeCalls, 1);
+    assert.equal(outcome.submitted, false);
+    assert.equal(outcome.creditsConsumed, false);
+    assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).inputValue(), "");
+    assert.equal(await page.locator('textarea[maxlength="1000"]').inputValue(), "");
     assert.equal(await submitCount(page), 0);
   } finally {
     await page.close();
@@ -313,6 +340,16 @@ test("delayed login takes precedence after Create readiness renders", async () =
   assert.deepEqual(await submitSunoJob(page, job(), async () => undefined, navigation), {
     status: "login-required",
   });
+  assert.equal(await submitCount(page), 0);
+  await page.close();
+});
+
+test("bounded entry polling waits for stable late login evidence before filling", async () => {
+  const { page, navigation } = await fixture("ready-then-late-login");
+  const outcome = await submitSunoJob(page, job(), async () => undefined, navigation);
+
+  assert.deepEqual(outcome, { status: "login-required" });
+  assert.equal(await page.getByRole("textbox", { name: LYRICS_PROMPT }).count(), 0);
   assert.equal(await submitCount(page), 0);
   await page.close();
 });

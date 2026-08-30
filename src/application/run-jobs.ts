@@ -6,10 +6,8 @@ import {
   type SunoJob,
   type TrackedJob,
 } from "../domain/job.js";
-import { resolveJobPaths, type RuntimePaths } from "../config.js";
 import { runQueue, type QueueJobResult, type QueueRunResult } from "../queue.js";
-import { createOutcomeDiagnostic, mapDiagnosticCategory, writeDiagnostic } from "../suno/diagnostics.js";
-import type { AutomationOutcome, JobCheckpoint, JobRepository, SunoAutomation, SunoSession } from "./contracts.js";
+import type { AutomationOutcome, JobCheckpoint, JobRepository, OutcomeDiagnosticWriter, SunoAutomation, SunoSession } from "./contracts.js";
 
 export interface RunJobsRequest {
   jobs: SunoJob[];
@@ -20,7 +18,7 @@ export interface RunJobsRequest {
 export interface RunJobsDependencies {
   repository: JobRepository;
   automation: SunoAutomation;
-  paths: RuntimePaths;
+  diagnosticWriter: OutcomeDiagnosticWriter;
 }
 
 interface PreparedJob {
@@ -33,7 +31,7 @@ export async function runJobs(
   dependencies: RunJobsDependencies,
   report: (line: string) => void = console.log,
 ): Promise<QueueRunResult> {
-  const { repository, automation, paths } = dependencies;
+  const { repository, automation, diagnosticWriter } = dependencies;
   const outcomes = new Map<string, AutomationOutcome>();
   const result = await runQueue(request.jobs, request, {
     prepare: async (input) => {
@@ -64,16 +62,7 @@ export async function runJobs(
     if (jobResult.status === "completed") return;
     try {
       const identifier = jobIdentifier(request.jobs[index]!);
-      const outcome = outcomes.get(identifier) ?? fallbackOutcome(jobResult);
-      const jobPaths = resolveJobPaths(paths, identifier);
-      const diagnostic = createOutcomeDiagnostic(
-        identifier,
-        outcome.stage ?? "submission",
-        mapDiagnosticCategory(outcome.code ?? "submission-unknown"),
-        outcome.location ?? "unknown",
-        outcome.facts ?? [],
-      );
-      await writeDiagnostic(paths.root, jobPaths.diagnostic, diagnostic);
+      await diagnosticWriter.write(identifier, outcomes.get(identifier) ?? fallbackOutcome(jobResult));
     } catch {
       // Diagnostics are best-effort and must never replace the original job outcome.
     }
