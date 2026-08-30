@@ -36,4 +36,5 @@ jobs:
         run: npx playwright install chromium
       - run: npm run build
       - run: npm test
-        shell: bash
+        env:
+          npm_config_script_shell: bash
