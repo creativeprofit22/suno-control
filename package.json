@@ -48,7 +48,7 @@
     "test:phase-completion-5": "node --test --test-name-pattern=\"criterion 5\" dist/test/run-jobs.test.js dist/test/tracking.test.js"
   },
   "dependencies": {
-    "playwright": "1.62.1"
+    "playwright": "1.65.0"
   },
   "devDependencies": {
     "@types/node": "26.2.0",
